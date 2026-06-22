@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity | Premium Image Compare</title>
+  <!-- Google Fonts: Outfit for clean, modern typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- CSS Styling -->
+  <link rel="stylesheet" href="style.css">
+  <!-- fflate: standard ZIP decompression for Three.js EXRLoader ZIP blocks -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/fflate.min.js"></script>
+</head>
+<body class="theme-dark">
+
+  <!-- Main Viewport (Image Centered Area) -->
+  <main id="viewer-viewport" class="mode-side-by-side transparency-checkered">
+    
+    <div id="panes-container" class="panes-container">
+      <!-- Left Pane (Image A) -->
+      <div id="pane-a" class="viewer-pane">
+        <div class="pane-empty-state" id="empty-a">
+          <div class="empty-icon">▲</div>
+          <h3>Image A</h3>
+          <p>Drag & Drop, Paste (Ctrl+V), or click to upload</p>
+          <input type="file" id="file-a" accept="image/*" class="file-input-hidden">
+          <button class="btn-upload" onclick="document.getElementById('file-a').click()">Choose File</button>
+        </div>
+        
+        <!-- Hourglass / Feedback indicator for Pane A -->
+        <div id="loader-a" class="pane-loader hidden">
+          <div class="hourglass-spinner">⏳</div>
+          <p>Opening Image A...</p>
+        </div>
+
+        <img id="img-a" src="" alt="Image A" class="compare-img hidden">
+        <canvas id="canvas-a-overlay" class="compare-img hidden"></canvas>
+      </div>
+
+      <!-- Right/Overlay Pane (Image B) -->
+      <div id="pane-b" class="viewer-pane">
+        <div class="pane-empty-state" id="empty-b">
+          <div class="empty-icon">▼</div>
+          <h3>Image B</h3>
+          <p>Drag & Drop, Paste (Ctrl+V), or click to upload</p>
+          <input type="file" id="file-b" accept="image/*" class="file-input-hidden">
+          <button class="btn-upload" onclick="document.getElementById('file-b').click()">Choose File</button>
+        </div>
+
+        <!-- Hourglass / Feedback indicator for Pane B -->
+        <div id="loader-b" class="pane-loader hidden">
+          <div class="hourglass-spinner">⏳</div>
+          <p>Opening Image B...</p>
+        </div>
+
+        <img id="img-b" src="" alt="Image B" class="compare-img hidden">
+        <canvas id="canvas-b-overlay" class="compare-img hidden"></canvas>
+      </div>
+    </div>
+
+    <!-- Comparative Eyedropper Floating Tooltip -->
+    <div id="pixel-inspector-tooltip" class="pixel-inspector-tooltip hidden">
+      <div class="tooltip-coords">X: <span id="tooltip-px">-</span> | Y: <span id="tooltip-py">-</span></div>
+      <div class="tooltip-row" id="tooltip-row-a">
+        <span class="swatch" id="tooltip-swatch-a"></span>
+        <span class="label">A:</span>
+        <span class="value" id="tooltip-val-a">RGB(-, -, -)</span>
+      </div>
+      <div class="tooltip-row" id="tooltip-row-b">
+        <span class="swatch" id="tooltip-swatch-b"></span>
+        <span class="label">B:</span>
+        <span class="value" id="tooltip-val-b">RGB(-, -, -)</span>
+      </div>
+      <div id="tooltip-alert" class="tooltip-alert hidden">⚠️ DIFF DETECTED</div>
+    </div>
+
+    <!-- Slider Divider Handle (Only active/visible in Slider mode) -->
+    <div id="slider-divider" class="slider-divider">
+      <div class="slider-handle">
+        <span class="handle-arrow">◀</span>
+        <span class="handle-arrow">▶</span>
+      </div>
+    </div>
+
+    <!-- Mode Badge Floating Overlay (shows what mode is currently active at the top) -->
+    <div id="mode-badge" class="floating-badge">Side-by-Side Mode</div>
+
+    <!-- Centered Crosshair / Grid overlay for fine comparison (Toggleable) -->
+    <div id="grid-overlay" class="grid-overlay hidden"></div>
+
+    <!-- Tile Grid boundary overlay (Toggleable) -->
+    <div id="tile-grid-overlay" class="tile-grid-overlay"></div>
+
+    <!-- Symmetrical Left Glassmorphic Print QC Panel (Starts collapsed) -->
+    <div id="print-qc-panel" class="qc-panel collapsible collapsed">
+      <div class="qc-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); padding-bottom: 12px;">
+          <h3 class="qc-main-title" style="margin-bottom: 0; font-size: 19px; font-weight: 800; letter-spacing: 0.6px; display: flex; align-items: center; gap: 8px; text-shadow: 0 0 15px rgba(0, 255, 204, 0.5);">
+            <span style="color: var(--accent-teal);">🎯</span> QC Print Tools
+          </h3>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="badge-pass" style="font-size: 9px; letter-spacing: 0.5px; padding: 3px 8px;">ISO 12647-2</span>
+            <button class="btn-close-qc" id="btn-close-qc" title="Close QC Print Tools" style="background: transparent; border: none; color: var(--text-muted); font-size: 22px; line-height: 1; cursor: pointer; transition: var(--transition-smooth); padding: 0 4px;">×</button>
+          </div>
+        </div>
+        
+        <!-- QC Tab Selectors -->
+        <div class="qc-tabs">
+          <button class="btn-qc-tab active" data-tab="deltae" title="Delta-E Regions">ΔE</button>
+          <button class="btn-qc-tab" data-tab="tac" title="Total Area Coverage">Ink</button>
+          <button class="btn-qc-tab" data-tab="dot" title="Scum Dot & Dot Gain">Dot</button>
+          <button class="btn-qc-tab" data-tab="moire" title="Moiré FFT Analyzer">FFT</button>
+        </div>
+        
+        <div class="qc-tab-divider"></div>
+        
+        <!-- Tab 1: Delta-E Per Region -->
+        <div id="qc-tab-deltae" class="qc-tab-pane">
+          <div class="qc-instructions">
+            <h4>Delta-E Perceptual Color Check</h4>
+            <p>Measure color deviation based on human vision (CIE Lab) rather than simple RGB subtraction. ISO standards define limits for proof matching.</p>
+            <ol>
+              <li>Click <strong>Add ROI Region</strong> below.</li>
+              <li>Click & drag on the viewport to draw a test region.</li>
+              <li>Rename the region label to identify the target.</li>
+              <li>Observe Delta-E (ΔE): <strong>Pass (&lt;2)</strong>, <strong>Warn (2–4)</strong>, or <strong>Fail (&gt;4)</strong>.</li>
+            </ol>
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="btn-qc-action" id="btn-add-roi" style="flex-grow: 1;">Add ROI Region</button>
+            <button class="btn-qc-action btn-danger" id="btn-clear-rois" style="width: auto; padding: 8px 14px;" title="Clear all ROI regions">Clear</button>
+          </div>
+          <div id="qc-roi-list" class="qc-roi-list">
+            <p class="qc-empty-text">No active ROI regions. Click button above to draw on viewport.</p>
+          </div>
+        </div>
+        
+        <!-- Tab 2: Total Area Coverage / Ink Limit -->
+        <div id="qc-tab-tac" class="qc-tab-pane hidden">
+          <div class="qc-instructions">
+            <h4>Total Area Coverage (TAC) Limits</h4>
+            <p>Too much ink saturated in shadows causes paper tearing, offset smudging, or wet press failure. High-quality offset is limited to 300% ink.</p>
+            <ol>
+              <li>Toggle <strong>TAC Overlay</strong> to see exceeding pixels.</li>
+              <li>Set threshold slider (e.g., 300% for publication).</li>
+              <li>Choose whether to evaluate the Ref (A) or Proof (B).</li>
+              <li>Exceeded areas will glow in a thermal heatmap.</li>
+            </ol>
+          </div>
+          <div class="qc-control-item">
+            <label for="qc-tac-threshold">Ink Limit Threshold: <span id="qc-val-tac-threshold">300%</span></label>
+            <input type="range" id="qc-tac-threshold" min="240" max="340" step="5" value="300">
+          </div>
+          <div class="qc-toggle-group">
+            <label class="qc-toggle-label">
+              <input type="checkbox" id="qc-toggle-tac" class="qc-checkbox-hidden">
+              <span class="qc-toggle-btn-custom">TAC Overlay</span>
+            </label>
+          </div>
+          <div class="qc-control-item">
+            <label>Evaluate Target</label>
+            <div class="qc-radio-group">
+              <button class="btn-qc-radio active" data-target="b">Image B (Proof)</button>
+              <button class="btn-qc-radio" data-target="a">Image A (Ref)</button>
+            </div>
+          </div>
+          <div class="qc-stats-readout">
+            <p>Area Exceeded: <span id="qc-val-tac-area">0.0%</span></p>
+          </div>
+        </div>
+        
+        <!-- Tab 3: Scum Dot & Dot Gain -->
+        <div id="qc-tab-dot" class="qc-tab-pane hidden">
+          <div class="qc-instructions">
+            <h4>Dot Quality & Dot Gain (TVI)</h4>
+            <p>Halftone rosettes spread under physical pressure, causing print darkening (TVI), while unwanted ink specs form 'scum dots' on white paper.</p>
+            <ol>
+              <li>Toggle <strong>Scum Dot Overlay</strong> to detect stray dot gain in non-ink areas (Reference under 1%, Proof above threshold). Highlighted in purple.</li>
+              <li>Click <strong>Enable Sampler</strong> then click any region on the image to measure Tonal Value Increase.</li>
+            </ol>
+          </div>
+          <div class="qc-section-title">Highlight Cleanliness</div>
+          <div class="qc-toggle-group" style="margin-bottom: 12px;">
+            <label class="qc-toggle-label">
+              <input type="checkbox" id="qc-toggle-scum" class="qc-checkbox-hidden">
+              <span class="qc-toggle-btn-custom">Scum Dot Overlay</span>
+            </label>
+          </div>
+          <div class="qc-control-item">
+            <label for="qc-scum-threshold">Scum Dot Threshold: <span id="qc-val-scum-threshold">3%</span></label>
+            <input type="range" id="qc-scum-threshold" min="1" max="10" step="1" value="3">
+          </div>
+          
+          <div class="qc-tab-divider-sub"></div>
+          
+          <div class="qc-section-title">Tonal Value Increase (Dot Gain)</div>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="btn-qc-action" id="btn-sample-dotgain" style="flex-grow: 1;">Enable Sampler</button>
+            <button class="btn-qc-action btn-danger" id="btn-clear-dotgain-sampler" style="width: auto; padding: 8px 14px;" title="Clear Sampler Pin">Clear</button>
+          </div>
+          <div id="qc-dotgain-readout" class="qc-dotgain-readout">
+            <p class="qc-empty-text">Select sampler and click on a tonal patch to measure TVI.</p>
+          </div>
+        </div>
+        
+        <!-- Tab 4: Moiré Frequency Analyzer -->
+        <div id="qc-tab-moire" class="qc-tab-pane hidden">
+          <div class="qc-instructions">
+            <h4>Moiré Rosette FFT Analysis</h4>
+            <p>Halftone screen angles must be carefully offset to avoid moiré interference. We run a 2D Fast Fourier Transform to analyze frequency rosette peaks.</p>
+            <ol>
+              <li>Click <strong>Draw FFT Sample Box</strong>.</li>
+              <li>Click & drag a 128x128 block over an image pattern.</li>
+              <li>Compare spectral energy spikes side-by-side.</li>
+              <li>Check automated <strong>Moiré Confidence</strong> reading.</li>
+            </ol>
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="btn-qc-action" id="btn-add-moire-roi" style="flex-grow: 1;">Draw FFT Sample Box</button>
+            <button class="btn-qc-action btn-danger" id="btn-clear-moire-roi" style="width: auto; padding: 8px 14px;" title="Clear FFT Sample Box">Clear</button>
+          </div>
+          
+          <div id="qc-moire-analyzer-output" class="qc-moire-analyzer-output hidden">
+            <div class="qc-fft-canvases">
+              <div class="qc-fft-canvas-container">
+                <canvas id="fft-canvas-a" width="120" height="120"></canvas>
+                <span>A (Reference)</span>
+              </div>
+              <div class="qc-fft-canvas-container">
+                <canvas id="fft-canvas-b" width="120" height="120"></canvas>
+                <span>B (Proof)</span>
+              </div>
+            </div>
+            <div class="qc-stats-readout">
+              <p>Moiré Confidence: <span id="qc-val-moire-confidence" class="badge-fail">LOW</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Viewport Drag Drawing Overlay (only active when creating ROI selections) -->
+    <div id="roi-draw-overlay" class="roi-draw-overlay hidden"></div>
+
+    <!-- Glassmorphic Meta Info Panel (shows file info, dimensions, size, zoom scale) -->
+    <div id="meta-panel" class="meta-panel collapsible">
+      <button class="meta-toggle-btn" id="btn-toggle-meta" title="Toggle Image Metadata">
+        <span class="meta-icon">ℹ</span>
+      </button>
+      <div class="meta-content">
+        <div class="meta-section">
+          <h4>Image A</h4>
+          <p id="meta-name-a" class="file-name-display">No image loaded</p>
+          <p id="meta-dim-a">-</p>
+          <p id="meta-size-a">-</p>
+        </div>
+        <div class="meta-divider"></div>
+        <div class="meta-section">
+          <h4>Image B</h4>
+          <p id="meta-name-b" class="file-name-display">No image loaded</p>
+          <p id="meta-dim-b">-</p>
+          <p id="meta-size-b">-</p>
+        </div>
+        <div class="meta-divider"></div>
+        <div class="meta-section stats-section">
+          <h4>Viewport</h4>
+          <p>Zoom: <span id="meta-zoom">100%</span></p>
+          <p>Pan: <span id="meta-pan">0px, 0px</span></p>
+          
+          <div class="view-preset-container">
+            <button class="btn-preset" id="btn-zoom-fit" title="Fit both images to viewport">Fit</button>
+            <button class="btn-preset" id="btn-zoom-fill" title="Fill viewport with images">Fill</button>
+            <button class="btn-preset" id="btn-zoom-11" title="Set zoom to 1:1 original scale (100%)">1:1</button>
+            <button class="btn-preset" id="btn-match-views" title="Align scales and offset of Image B to Match Image A">Match</button>
+          </div>
+          
+          <button class="btn-reset-view" id="btn-reset-view">Reset View</button>
+        </div>
+        
+        <div class="meta-divider"></div>
+        
+        <!-- Real-Time Scope (Histogram Overlay) Section -->
+        <div class="meta-section histogram-section">
+          <div class="histogram-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin-bottom: 0;">Real-Time Scope</h4>
+            <div class="channel-selectors" style="display: flex; gap: 3px;">
+              <button class="btn-channel active" data-chan="all" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-light); font-size: 9px; padding: 2px 6px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 500; transition: var(--transition-smooth);">RGB</button>
+              <button class="btn-channel" data-chan="r" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #ff3366; font-size: 9px; padding: 2px 6px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 500; transition: var(--transition-smooth);">R</button>
+              <button class="btn-channel" data-chan="g" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #00ffcc; font-size: 9px; padding: 2px 6px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 500; transition: var(--transition-smooth);">G</button>
+              <button class="btn-channel" data-chan="b" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #3366ff; font-size: 9px; padding: 2px 6px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 500; transition: var(--transition-smooth);">B</button>
+              <button class="btn-channel" data-chan="luma" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #ffffff; font-size: 9px; padding: 2px 6px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 500; transition: var(--transition-smooth);">Y</button>
+            </div>
+          </div>
+          <div style="position: relative; background: rgba(0,0,0,0.3); border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); padding: 6px; height: 110px;">
+            <canvas id="histogram-canvas" width="240" height="98" style="width: 100%; height: 100%; display: block;"></canvas>
+            <span style="position: absolute; bottom: 4px; left: 8px; font-size: 8px; color: var(--text-dim); font-family: monospace;">CRUSH (0)</span>
+            <span style="position: absolute; bottom: 4px; right: 8px; font-size: 8px; color: var(--text-dim); font-family: monospace;">CLIP (255)</span>
+          </div>
+        </div>
+        
+        <div class="meta-divider"></div>
+        <div class="meta-section adjustments-section">
+          <h4>Visual Calibration</h4>
+          
+          <!-- Exposure Slider -->
+          <div class="adjustment-item">
+            <label for="adj-exposure">Exposure: <span id="val-exposure">1.00x</span></label>
+            <input type="range" id="adj-exposure" min="0.01" max="32.0" step="0.01" value="1.0">
+          </div>
+          
+          <!-- Gamma Slider -->
+          <div class="adjustment-item">
+            <label for="adj-gamma">Gamma: <span id="val-gamma">1.00</span></label>
+            <input type="range" id="adj-gamma" min="0.2" max="6.0" step="0.05" value="1.0">
+          </div>
+          
+          <!-- Difference options (only visible in difference mode) -->
+          <div id="diff-only-adjustments" class="hidden">
+            <div class="meta-subdivider"></div>
+            
+            <div class="adjustment-item">
+              <label for="adj-diff-scale" style="color: var(--accent-teal)">Delta Boost (Nuke Style): <span id="val-diff-scale">1x</span></label>
+              <input type="range" id="adj-diff-scale" min="1" max="256" step="1" value="1">
+            </div>
+            
+            <div class="adjustment-item" style="margin-top: 10px;">
+              <label class="qc-toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="diff-toggle-heatmap" style="width: 14px; height: 14px; accent-color: var(--accent-teal); cursor: pointer;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">False-Color Thermal Map</span>
+              </label>
+            </div>
+            
+            <div class="adjustment-item" style="margin-top: 12px;">
+              <label style="margin-bottom: 6px; display: block;">Color Sensitivity</label>
+              <div class="weight-sliders">
+                <div class="weight-row">
+                  <span class="weight-lbl red">R</span>
+                  <input type="range" id="adj-weight-r" min="0" max="2" step="0.05" value="1">
+                  <span id="val-weight-r" class="weight-val">1.0</span>
+                </div>
+                <div class="weight-row">
+                  <span class="weight-lbl green">G</span>
+                  <input type="range" id="adj-weight-g" min="0" max="2" step="0.05" value="1">
+                  <span id="val-weight-g" class="weight-val">1.0</span>
+                </div>
+                <div class="weight-row">
+                  <span class="weight-lbl blue">B</span>
+                  <input type="range" id="adj-weight-b" min="0" max="2" step="0.05" value="1">
+                  <span id="val-weight-b" class="weight-val">1.0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <button class="btn-preset" id="btn-reset-adjustments" style="margin-top: 10px; width: 100%; display: block; border-color: rgba(255, 255, 255, 0.1);">Reset Adjustments</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating QC Print Tools Toggle Button -->
+    <button class="btn-qc-toggle" id="btn-toggle-qc" title="QC Print Tools">
+      <span class="icon">🎯</span> QC Print Tools
+    </button>
+
+    <!-- Floating Sample Drawer Toggle -->
+    <button class="btn-samples-toggle" id="btn-samples-toggle" title="Try Demo Samples">
+      <span class="icon">✨</span> Demo Samples
+    </button>
+
+    <!-- Side Sample Drawer (Collapsible) -->
+    <div class="sample-drawer" id="sample-drawer">
+      <div class="drawer-header">
+        <h3>Sample Pair Presets</h3>
+        <button class="btn-close-drawer" id="btn-close-drawer">×</button>
+      </div>
+      <div class="drawer-body">
+        <div class="sample-card" id="sample-card-spotlight">
+          <div class="sample-thumb-container">
+            <span class="sample-badge" style="background: rgba(255, 170, 0, 0.1); border-color: rgba(255, 170, 0, 0.2); color: hsl(35, 100%, 55%);">EXR Float</span>
+            <div class="sample-thumbs">
+              <div class="thumb-a" style="background: var(--accent-indigo)">A</div>
+              <div class="thumb-b" style="background: var(--accent-teal)">B</div>
+            </div>
+          </div>
+          <div class="sample-card-info">
+            <h4>Ring Spotlight Cam Plus (EXR)</h4>
+            <p>Compare two high-fidelity 16-bit float EXR renders (v04 vs v02) with linear Reinhard tonemapping. Inspect 3D lighting distributions, shadows, and fine CAD geometry details.</p>
+          </div>
+        </div>
+        <div class="sample-card" id="sample-card-cyberpunk">
+          <div class="sample-thumb-container">
+            <span class="sample-badge" style="background: rgba(0, 255, 200, 0.1); border-color: rgba(0, 255, 200, 0.2); color: var(--accent-teal);">3D Render</span>
+            <div class="sample-thumbs">
+              <div class="thumb-a" style="background: var(--accent-indigo)">A</div>
+              <div class="thumb-b" style="background: var(--accent-teal)">B</div>
+            </div>
+          </div>
+          <div class="sample-card-info">
+            <h4>Luxury Smartwatch Review</h4>
+            <p>Compare a high-fidelity 3D smartwatch product render against a compressed build. Inspect compression block artifacts and subpixel screen defects.</p>
+          </div>
+        </div>
+        <div class="sample-card" id="sample-card-photo">
+          <div class="sample-thumb-container">
+            <span class="sample-badge" style="background: rgba(160, 100, 255, 0.1); border-color: rgba(160, 100, 255, 0.2); color: var(--accent-purple);">3D Render</span>
+            <div class="sample-thumbs">
+              <div class="thumb-a" style="background: var(--accent-indigo)">A</div>
+              <div class="thumb-b" style="background: var(--accent-teal)">B</div>
+            </div>
+          </div>
+          <div class="sample-card-info">
+            <h4>VR Headset Optics QA</h4>
+            <p>Analyze optical chromatic aberration lens drift and casing scratches on a stunning VR/AR headset 3D product render.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Global Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+
+  </main>
+
+  <!-- Floating Main Control Toolbar (Sleek, minimalist, glassy, centered at the bottom) -->
+  <footer class="toolbar-container">
+    <div class="toolbar-inner">
+      
+      <!-- Toolbar Section: Modes Selector -->
+      <div class="toolbar-group">
+        <span class="group-label">Mode</span>
+        <div class="mode-buttons">
+          <button class="btn-tool active" data-mode="side-by-side" title="Synchronized Side-by-Side (D)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M2 4v16h9V4H2zm11 0v16h9V4h-9z"/></svg>
+            <span>Side-by-Side</span>
+          </button>
+          <button class="btn-tool" data-mode="slider" title="Slider / Curtain Mode (S)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M10 2v20h4V2h-4zM2 10v4h6v-4H2zm14 0v4h6v-4h-6z"/></svg>
+            <span>Slider</span>
+          </button>
+          <button class="btn-tool" data-mode="blend" title="Opacity Blend (F)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2zm0 2c4.4 0 8 3.6 8 8s-3.6 8-8 8V4z"/></svg>
+            <span>Blend</span>
+          </button>
+          <button class="btn-tool" data-mode="difference" title="Difference Blend (G)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10zm1-17.93c3.95.49 7 3.85 7 7.93s-3.05 7.44-7 7.93V4.07z"/></svg>
+            <span>Difference</span>
+          </button>
+          <button class="btn-tool" data-mode="blink" title="Onion Skin / Blink (B)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+            <span>Blink</span>
+          </button>
+          <button class="btn-tool" data-mode="tile-grid" title="Tile Grid Mosaic (T)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm-9 9h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg>
+            <span>Tile Grid</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Toolbar Section: Mode Options (Contextual adjustments like Opacity, Speed) -->
+      <div class="toolbar-group options-group hidden" id="group-mode-options">
+        <span class="group-label" id="option-label">Adjustment</span>
+        <div class="slider-option-container">
+          <input type="range" id="mode-option-slider" min="0" max="100" value="50">
+          <span id="mode-option-val" class="slider-value">50%</span>
+        </div>
+      </div>
+
+      <!-- Slider Orientation Switch (Only visible in Slider mode) -->
+      <div class="toolbar-group hidden" id="group-slider-orientation">
+        <span class="group-label">Split Layout</span>
+        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 2px;">
+          <button class="btn-toggle-option active" id="btn-slider-h" title="Horizontal Split (Left/Right)">H-Split</button>
+          <button class="btn-toggle-option" id="btn-slider-v" title="Vertical Split (Top/Bottom)">V-Split</button>
+        </div>
+      </div>
+
+      <!-- Tile Grid Options (Only visible in Tile Grid mode) -->
+      <div class="toolbar-group hidden" id="group-tile-grid-options">
+        <span class="group-label">Grid Lines</span>
+        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 2px;">
+          <button class="btn-toggle-option" id="btn-toggle-tile-grid-lines" title="Toggle visible grid lines on the mosaic cells">Show Grid</button>
+        </div>
+      </div>
+
+      <div class="toolbar-divider hidden" id="divider-mode-options"></div>
+
+      <!-- Toolbar Section: Alpha transparency backgrounds -->
+      <div class="toolbar-group">
+        <span class="group-label">Background</span>
+        <div class="bg-buttons">
+          <button class="btn-bg active" data-bg="transparency-checkered" title="Checkerboard Translucency">
+            <span class="bg-preview checkers"></span>
+          </button>
+          <button class="btn-bg" data-bg="bg-black" title="Solid Black">
+            <span class="bg-preview black"></span>
+          </button>
+          <button class="btn-bg" data-bg="bg-white" title="Solid White">
+            <span class="bg-preview white"></span>
+          </button>
+          <button class="btn-bg" data-bg="bg-neutral" title="Solid Neutral Gray">
+            <span class="bg-preview gray"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Toolbar Section: Quick Utils (Reload, Swap, Grid, Shortcuts Help) -->
+      <div class="toolbar-group">
+        <span class="group-label">Utilities</span>
+        <div class="util-buttons">
+          <button class="btn-util active" id="btn-toggle-sync" title="Lock/Unlock Viewport Synchronization (Y)">
+            <svg class="icon icon-lock" viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
+            <svg class="icon icon-unlock hidden" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z"/></svg>
+          </button>
+          <button class="btn-util" id="btn-toggle-eyedropper" title="Toggle RGB Pixel Inspector / Eyedropper (I)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M17.41 2.58a2 2 0 0 0-2.83 0l-2.5 2.5 3.54 3.53 2.5-2.5a2 2 0 0 0 0-2.83l-0.71-0.7M10.66 6.5L3 14.16V18h3.84l7.66-7.66-3.84-3.84zM5 16v-1.02l5.66-5.66 1.02 1.02L6.02 16H5z"/></svg>
+          </button>
+          <button class="btn-util" id="btn-swap-images" title="Swap Image A and Image B (X)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z"/></svg>
+          </button>
+          <button class="btn-util" id="btn-toggle-grid" title="Toggle Fine Grid Alignment Overlay (L)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 20H4v-4h4v4zm0-6H4v-4h4v4zm0-6H4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4z"/></svg>
+          </button>
+          <button class="btn-util btn-danger" id="btn-clear-images" title="Clear Loaded Images">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+          <button class="btn-util" id="btn-show-help" title="Keyboard Shortcuts & Help (H)">
+            <span style="font-weight: 700; font-size: 14px;">?</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- Floating Keyboard Help Modal -->
+  <div class="modal-backdrop hidden" id="help-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Keyboard Shortcuts & Tips</h3>
+        <button class="modal-close" id="btn-close-help">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcut-list">
+          <div class="shortcut-item">
+            <kbd>D</kbd> <span>Activate Synchronized Side-by-Side Mode</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>S</kbd> <span>Activate Slider (Curtain) Mode</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>F</kbd> <span>Activate Opacity Blend Mode</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>G</kbd> <span>Activate Difference Comparison Mode</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>B</kbd> <span>Activate Blink (Onion Skin) Mode (Space to toggle manually)</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>T</kbd> <span>Activate Tile Grid Mosaic Mode</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>X</kbd> <span>Swap Image A and Image B</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>C</kbd> <span>Cycle Background (Checkered → Black → White → Gray)</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>Y</kbd> <span>Lock/Unlock Viewport Synchronization (Presets lock offsets)</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>I</kbd> <span>Toggle RGB Pixel Inspector / Eyedropper</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>R</kbd> <span>Reset Pan & Zoom Views</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>L</kbd> <span>Toggle Center Grid Alignment Overlay</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>Esc</kbd> <span>Close active modal or drawers</span>
+          </div>
+        </div>
+        <div class="pro-tips">
+          <h4>Pro Comparison Tips</h4>
+          <ul>
+            <li><strong>Synchronized Panning:</strong> Click and drag anywhere on the images to pan both simultaneously! Also supports swipes on Mac Trackpad & Magic Mouse!</li>
+            <li><strong>Centered Zooming:</strong> Hover your mouse over the exact spot you want to inspect and zoom. It scales directly relative to your pointer!
+              <br><small style="color: var(--accent-teal)">* Mac Trackpad: standard pinch-to-zoom. Mac Mouse: hold <kbd>Opt/Alt</kbd> and swipe up/down.</small></li>
+            <li><strong>Clipboard Loading:</strong> Copy any image to your clipboard and simply press <kbd>Ctrl+V</kbd> anywhere on this page to paste it into an empty slot.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" width="0" height="0">
+    <defs>
+      <filter id="diff-adjust-filter" color-interpolation-filters="sRGB">
+        <feColorMatrix id="svg-diff-matrix" type="matrix" values="
+          1 0 0 0 0
+          0 1 0 0 0
+          0 0 1 0 0
+          0 0 0 1 0" />
+        <feComponentTransfer id="svg-diff-transfer">
+          <feFuncR id="svg-func-r" type="gamma" amplitude="1" exponent="1" offset="0" />
+          <feFuncG id="svg-func-g" type="gamma" amplitude="1" exponent="1" offset="0" />
+          <feFuncB id="svg-func-b" type="gamma" amplitude="1" exponent="1" offset="0" />
+        </feComponentTransfer>
+      </filter>
+    </defs>
+  </svg>
+
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/EXRLoader.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
