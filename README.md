@@ -1,129 +1,122 @@
-# 🌟 Antigravity | Premium Image Compare & Calibration Suite
+# image-compare-app
 
-Welcome to **Antigravity**, a state-of-the-art, GPU-accelerated single-page web application designed for high-precision image comparison, pre-press Quality Control (QC), and visual calibration. 
-
-Whether you are a 3D artist auditing render passes, a game developer checking texture compression, or a print operator verifying ink coverage and color deviations, Antigravity provides the ultimate suite of real-time analysis tools right in your browser.
+A browser-based web application for comparing two high-resolution images side by side, including support for HDR/EXR files. No install required — open it with a local web server and drop in your images.
 
 ---
 
-## 📸 Suggested Screenshot Showcase
+## Screenshots
 
-To make this repository look incredibly professional on GitHub, here are the **3 best spots** to include screenshots in this ReadMe. 
-
-Once you capture your screen grabs, save them in the `assets/` directory with the matching filenames below, and they will automatically display on your GitHub page!
-
-### Spot 1: The Core Viewport & Split Layout
-* **Recommended Filename**: `assets/screenshot_viewer.png`
-* **Where to Put It**: Directly below the main title.
-* **How to Capture It**:
-  1. Load the **Ring Spotlight Cam Plus (EXR)** preset from the Demo Samples menu.
-  2. Switch the comparison mode to **Slider** and click **H-Split** (or **V-Split**) in the bottom toolbar.
-  3. Drag the slider divider slightly to the side to showcase the split-screen curtain effect.
-  4. Make sure the metadata side-panel is open on the right to display the real-time histogram scope.
-  5. *Grab a screenshot of the entire browser window!*
-
-![Viewer Interface Showcase](assets/screenshot_viewer.png)
+### Viewport & Scope
+![Viewer](assets/screenshot_viewer_v02.png)
+*Main workspace in Slider mode. The right-side panel shows a live histogram scope with composite RGB and individual channel curves, along with exposure and gamma controls.*
 
 ---
 
-### Spot 2: Delta-E Color Audit & Probing
-* **Recommended Filename**: `assets/screenshot_qc_tools.png`
-* **Where to Put It**: Inside the **Print QC Suite** features section.
-* **How to Capture It**:
-  1. Load the **Luxury Smartwatch Review** preset.
-  2. Open **🎯 QC Print Tools** on the left.
-  3. Under the **Delta-E ($\Delta E$)** tab, click **Add ROI Region** and draw 2 or 3 bounding boxes over different watch details.
-  4. Click the **Dot** tab, click **Enable Sampler**, and click a watch detail to place a target crosshair/pin.
-  5. *Capture the left half of the screen showing the beautiful, glassy sidebars and drawn target indicators.*
-
-![Print QC Suite and Probing](assets/screenshot_qc_tools.png)
+### Print QC Tools
+![Print QC Tools](assets/screenshot_qc_tools_v02.png)
+*The Print QC panel open on the Delta-E tab. ROI bounding boxes calculate CIE Lab color deviation between the two images. Also shown: the spectrophotometer pin for measuring CMYK ink percentages and Dot Gain.*
 
 ---
 
-### Spot 3: The False-Color Thermal Difference Heatmap
-* **Recommended Filename**: `assets/screenshot_thermal.png`
-* **Where to Put It**: Under the **Comparison Modes** section.
-* **How to Capture It**:
-  1. Load the **VR Headset Optics QA** preset.
-  2. Switch comparison mode to **Difference** (press `G`).
-  3. Toggle **False-Color Thermal Map** on in the right-side calibration panel.
-  4. Drag the **Delta Boost (Nuke Style)** slider to around `16x` or `32x` to illuminate microscopic differences.
-  5. *Grab a screenshot of the viewport displaying the gorgeous blue-to-red thermal gradient mapping the optical aberration.*
-
-![False-Color Thermal Difference Map](assets/screenshot_thermal.png)
+### False-Color Thermal Difference Map
+![Thermal Difference Map](assets/screenshot_thermal_v02.png)
+*Difference mode with the false-color thermal heatmap enabled. Pixel deviations are boosted and mapped to a blue-to-red spectrum to make subtle differences visible.*
 
 ---
 
-## ✨ Features at a Glance
+## Features
 
-Antigravity goes far beyond simple side-by-side matching, combining professional prepress mathematics with modern gaming-grade UI aesthetics.
+### Comparison Modes
+- **Side-by-Side**: Both viewports zoom and pan together, keeping alignment locked.
+- **Slider / Curtain**: Drag a horizontal or vertical boundary to reveal Image A or B. The split position is adjustable in the toolbar.
+- **Blend**: Cross-fade between Image A and Image B using an opacity slider.
+- **Difference**: Subtracts one image from the other. Includes a delta boost slider (up to 256×) and an optional false-color thermal heatmap.
+- **Blink / Onion Skin**: Alternates between Image A and B at an adjustable interval. Press <kbd>Space</kbd> to toggle manually.
+- **Tile Grid**: Divides the viewport into an alternating mosaic of A/B cells. Tile size is adjustable.
 
-### 🔍 Elite Comparison Modes
-* **Synchronized Side-by-Side**: Focus zoom is mapped relative to your mouse pointer, letting you scale both viewports simultaneously and preserve pan alignment offsets down to the pixel.
-* **Curtain Slider (Horizontal/Vertical)**: Drag a smooth horizontal or vertical boundary curtain to split and evaluate layouts.
-* **Opaque Opacity Blend**: Smoothly cross-dissolve Pane B over Pane A without any transparent background checkered bleed-through.
-* **Blink / Onion Skin**: Toggle frame visibility automatically at custom speeds, or tap the <kbd>Spacebar</kbd> to toggle manual frame-by-frame onion skinning.
-* **Tile Grid Mosaic**: Split the viewport into an alternating mosaic checkerboard of A/B cells. Drag the slider to scale checkerboard squares down to microscopic sizes.
+### Histogram Scope
+- Live composite RGB and individual channel curves (R, G, B, Luma).
+- Updates in real time as you adjust exposure or gamma.
+- Displays crush and clip counts at the bottom of the scope.
 
-### 🎨 Visual Calibration HUD
-* **Real-time Histogram Scope**: High-frequency composite RGB and individual channel curves (R, G, B, Luma) mapped at 60 FPS using an in-memory downsampled sample grid.
-* **Exposure & Gamma Calibration**: Push exposure parameters up to `32.0x` and gamma adjustments up to `6.0` to audit dark areas, clipping thresholds, and raw HDR details.
-* **Delta Boost (Nuke Style)**: Boost micro-difference pixel deltas up to `256x` to reveal faint compression blocks and spatial alignments.
+### Visual Calibration
+- **Exposure**: Adjustable from 0.1× to 32×.
+- **Gamma**: Adjustable from 0.1 to 6.0.
+- Adjustments apply non-destructively via a GPU SVG filter — the source image is unchanged.
 
-### 🎯 Print QC Suite
-* **CIE Lab Delta-E ($\Delta E_{ab}$)**: Click and drag to create ROI bounding boxes to calculate color deviation based on human vision (CIE76 standards). Auto-flags warnings and failures based on ISO standard limits.
-* **Total Area Coverage (TAC) Heatmap**: Highlight exceeded ink saturation levels (e.g. 300% for offset press publication) in a thermal glowing gradient.
-* **Highlight Scum Dot Finder**: Scans pure-white reference highlights for unwanted proof ink gain, highlighting stray dots in bright purple.
-* **TVI (Dot Gain) Spectrophotometer**: Click any pixel location to place a target pin and measure subtractive CMYK ink percentages and Dot Gain.
-* **Moiré Frequency 2D FFT Analyzer**: Run a Fast Fourier Transform on a selected 128x128 pixel pattern to analyze screen angles and rosette frequencies side-by-side.
+### Eyedropper / Pixel Inspector
+- Hover over either image to read RGB values at the cursor position for both images simultaneously.
+- Shows the per-channel delta (ΔR, ΔG, ΔB) and a composite ΔE estimate.
+- Displayed in a floating tooltip that follows the cursor.
+
+### Print QC Suite
+- **Delta-E (ΔE)**: Draw ROI bounding boxes to calculate CIE76 Lab color deviation between corresponding regions. Regions are flagged as Pass, Warning, or Fail against ISO tolerance limits.
+- **Ink / Total Area Coverage (TAC)**: Highlights pixels where estimated CMYK total ink coverage exceeds a set threshold (adjustable 100–400%). Exceeded pixels are shown as a thermal heatmap overlay.
+- **Scum Dot Finder**: Compares highlight areas across both images and marks unexpected ink gain in purple.
+- **Dot Gain / TVI Spectrophotometer**: Click any point to place a measurement pin and read estimated CMYK ink percentages and Tonal Value Increase.
+- **Moiré / FFT Analyzer**: Draws a 128×128 ROI and runs a 2D Fast Fourier Transform to analyze screen angle and rosette frequency patterns.
+- **Artifacts**: Scans for JPEG compression blocks, color banding, and posterization using configurable thresholds.
+- All QC overlays and selections are cleared automatically when switching between QC tabs.
+
+### File Support
+- Drag and drop, paste (Ctrl+V), or use the file picker to load images.
+- Supports PNG, JPEG, WebP, GIF, and HDR/EXR files.
+- EXR files are decoded client-side using Three.js EXRLoader with fflate for DWAB/DWAA decompression.
+- Sample image pairs are bundled (Blenny comparison, smartwatch 3D renders, VR headset QA renders).
+
+### Viewport Controls
+- Pan: click and drag anywhere in the viewport.
+- Zoom: scroll wheel.
+- Fit / Fill / 1:1 / Match buttons in the side panel.
+- Views can be locked (synchronized pan and zoom) or unlocked for independent navigation.
+- Background options: checkerboard (for transparency), black, white, or neutral gray.
+- Optional center grid alignment overlay.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
-Antigravity is completely self-contained. Since it runs raw image data queries and HDR parser loads (which require CORS clearance), it is best served through a local development server.
+The app is a single HTML file with local assets. It needs a web server because EXR loading and pixel reads use APIs that browsers block on `file://`. Any local server works:
 
-### Option A: Python HTTP Server (Easiest)
-If you have Python installed, run this simple command from the project directory:
+**Python:**
 ```bash
 python -m http.server 8000
 ```
-Then open [http://localhost:8000](http://localhost:8000) in your web browser!
 
-### Option B: Node.js static server
-If you prefer Node:
+**Node.js:**
 ```bash
 npm install -g local-web-server
 ws -p 8000
 ```
 
+Then open `http://localhost:8000` in a browser.
+
 ---
 
-## ⚡ Keyboard Shortcuts for Power Users
+## Keyboard Shortcuts
 
 | Key | Action |
-| --- | --- |
-| <kbd>D</kbd> | Activate Synchronized Side-by-Side Mode |
-| <kbd>S</kbd> | Activate Slider (Curtain) Mode |
-| <kbd>F</kbd> | Activate Opacity Blend Mode |
-| <kbd>G</kbd> | Activate Difference Comparison Mode |
-| <kbd>B</kbd> | Activate Blink / Onion Skin Mode |
-| <kbd>Space</kbd> | Pause Blink timer & toggle Frame A/B manually |
-| <kbd>T</kbd> | Activate Tile Grid Checkerboard Mode |
-| <kbd>X</kbd> | Swap Image A and Image B slots |
-| <kbd>Y</kbd> | Lock/Unlock Viewport Alignment Sync |
-| <kbd>I</kbd> | Toggle RGB Pixel Inspector / Eyedropper |
-| <kbd>R</kbd> | Reset Pan & Zoom back to 1:1 original scale |
-| <kbd>L</kbd> | Toggle Center Grid Alignment lines |
-| <kbd>C</kbd> | Cycle backgrounds (Checkered → Black → White → Gray) |
-| <kbd>Esc</kbd> | Collapse active sidebars and panels |
+|-----|--------|
+| <kbd>D</kbd> | Side-by-Side mode |
+| <kbd>S</kbd> | Slider mode |
+| <kbd>F</kbd> | Blend mode |
+| <kbd>G</kbd> | Difference mode |
+| <kbd>B</kbd> | Blink mode |
+| <kbd>Space</kbd> | Pause blink / toggle frame manually |
+| <kbd>T</kbd> | Tile Grid mode |
+| <kbd>X</kbd> | Swap Image A and B |
+| <kbd>Y</kbd> | Lock / Unlock viewport sync |
+| <kbd>I</kbd> | Toggle eyedropper |
+| <kbd>R</kbd> | Reset pan and zoom |
+| <kbd>L</kbd> | Toggle grid overlay |
+| <kbd>C</kbd> | Cycle background |
+| <kbd>H</kbd> | Show keyboard shortcuts |
+| <kbd>Esc</kbd> | Close open panels |
 
 ---
 
-## 🛠️ Technology Stack
-* **Structure**: HTML5 (Clean semantic structure)
-* **Styling**: Modern, premium dark-mode CSS with glassmorphic HUD panels and hardware-accelerated animations.
-* **Engine**: Vanilla ES6 JavaScript (Performance-optimized pixel-buffer analysis).
-* **Decoders & Parsers**:
-  * [Three.js r128](https://threejs.org/) & `EXRLoader` for client-side float rendering.
-  * [fflate](https://github.com/101arch/fflate) for blazing-fast DWAB/DWAA block decompression in EXR files.
+## Technology
+
+- HTML, CSS, vanilla JavaScript — no build step, no framework.
+- [Three.js r128](https://threejs.org/) + EXRLoader for client-side EXR decoding.
+- [fflate](https://github.com/101arch/fflate) for DWAB/DWAA block decompression.

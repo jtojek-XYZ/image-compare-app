@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity | Premium Image Compare</title>
+  <title>image-compare-app | Premium Image Compare</title>
   <!-- Google Fonts: Outfit for clean, modern typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <!-- CSS Styling -->
   <link rel="stylesheet" href="style.css">
   <!-- fflate: standard ZIP decompression for Three.js EXRLoader ZIP blocks -->
@@ -17,7 +17,10 @@
 
   <!-- Main Viewport (Image Centered Area) -->
   <main id="viewer-viewport" class="mode-side-by-side transparency-checkered">
-    
+
+    <!-- Dedicated thermal heatmap canvas — lives ABOVE both panes, no blend-mode inheritance -->
+    <canvas id="thermal-canvas" class="hidden" style="position:absolute;top:0;left:0;transform-origin:0 0;pointer-events:none;z-index:8;will-change:transform;max-width:none;max-height:none;"></canvas>
+
     <div id="panes-container" class="panes-container">
       <!-- Left Pane (Image A) -->
       <div id="pane-a" class="viewer-pane">
@@ -73,6 +76,7 @@
         <span class="label">B:</span>
         <span class="value" id="tooltip-val-b">RGB(-, -, -)</span>
       </div>
+      <div id="tooltip-delta" class="tooltip-delta hidden"></div>
       <div id="tooltip-alert" class="tooltip-alert hidden">⚠️ DIFF DETECTED</div>
     </div>
 
@@ -112,6 +116,7 @@
           <button class="btn-qc-tab" data-tab="tac" title="Total Area Coverage">Ink</button>
           <button class="btn-qc-tab" data-tab="dot" title="Scum Dot & Dot Gain">Dot</button>
           <button class="btn-qc-tab" data-tab="moire" title="Moiré FFT Analyzer">FFT</button>
+          <button class="btn-qc-tab" data-tab="artifacts" title="Center · Banding · Halo">Art</button>
         </div>
         
         <div class="qc-tab-divider"></div>
@@ -151,7 +156,7 @@
           </div>
           <div class="qc-control-item">
             <label for="qc-tac-threshold">Ink Limit Threshold: <span id="qc-val-tac-threshold">300%</span></label>
-            <input type="range" id="qc-tac-threshold" min="240" max="340" step="5" value="300">
+            <input type="range" id="qc-tac-threshold" min="100" max="400" step="5" value="300">
           </div>
           <div class="qc-toggle-group">
             <label class="qc-toggle-label">
@@ -238,6 +243,62 @@
             </div>
           </div>
         </div>
+        <!-- Tab 5: Artifacts — Center · Banding · Halo -->
+        <div id="qc-tab-artifacts" class="qc-tab-pane hidden">
+
+          <!-- Center Check -->
+          <div class="qc-section-title" style="color:var(--accent-teal);">⊕ Perfect Center Check</div>
+          <div class="qc-instructions">
+            <p>Locates the foreground subject centroid and measures its pixel offset from the canvas center — both X and Y axes. Use after compositing to confirm your 3D product render is perfectly placed. PASS = &lt;1% offset, WARN = 1–3%, FAIL = &gt;3%.</p>
+          </div>
+          <div class="qc-control-item">
+            <label>Evaluate Target</label>
+            <div class="qc-artifact-btns">
+              <button class="btn-center-check btn-qc-action" data-slot="a">Check Image A</button>
+              <button class="btn-center-check btn-qc-action" data-slot="b">Check Image B</button>
+            </div>
+          </div>
+          <div id="qc-center-readout" class="qc-dotgain-readout">
+            <p class="qc-empty-text">Select a target and click Check to measure centroid offset.</p>
+          </div>
+
+          <div class="qc-tab-divider-sub"></div>
+
+          <!-- Banding -->
+          <div class="qc-section-title" style="color:var(--accent-purple);">≡ Banding Detector</div>
+          <div class="qc-instructions">
+            <p>Scans for flat→step→flat luminance patterns that indicate gradient quantization banding — a posterization artifact from insufficient bit-depth, heavy JPEG compression, or 8-bit render output. PASS = &lt;0.5%, WARN = 0.5–1.5%, FAIL = &gt;1.5%.</p>
+          </div>
+          <div class="qc-control-item">
+            <label>Evaluate Target</label>
+            <div class="qc-artifact-btns">
+              <button class="btn-banding-check btn-qc-action" data-slot="a">Check Image A</button>
+              <button class="btn-banding-check btn-qc-action" data-slot="b">Check Image B</button>
+            </div>
+          </div>
+          <div id="qc-banding-readout" class="qc-dotgain-readout">
+            <p class="qc-empty-text">Select a target and click Check to scan for banding.</p>
+          </div>
+
+          <div class="qc-tab-divider-sub"></div>
+
+          <!-- Halo / Fringe -->
+          <div class="qc-section-title" style="color:#ff7878;">◎ Halo / Fringe Detector</div>
+          <div class="qc-instructions">
+            <p>Detects ringing and fringing around high-contrast edges — bright or dark halos caused by over-sharpening, improper compositing, or mismatched render/background antialiasing. PASS = &lt;5%, WARN = 5–15%, FAIL = &gt;15%.</p>
+          </div>
+          <div class="qc-control-item">
+            <label>Evaluate Target</label>
+            <div class="qc-artifact-btns">
+              <button class="btn-halo-check btn-qc-action" data-slot="a">Check Image A</button>
+              <button class="btn-halo-check btn-qc-action" data-slot="b">Check Image B</button>
+            </div>
+          </div>
+          <div id="qc-halo-readout" class="qc-dotgain-readout">
+            <p class="qc-empty-text">Select a target and click Check to scan for halos.</p>
+          </div>
+
+        </div>
       </div>
     </div>
 
@@ -320,37 +381,31 @@
           <div id="diff-only-adjustments" class="hidden">
             <div class="meta-subdivider"></div>
             
-            <div class="adjustment-item">
-              <label for="adj-diff-scale" style="color: var(--accent-teal)">Delta Boost (Nuke Style): <span id="val-diff-scale">1x</span></label>
-              <input type="range" id="adj-diff-scale" min="1" max="256" step="1" value="1">
+            <div class="adjustment-item diff-feature-item">
+              <label for="adj-diff-scale" class="diff-feature-label">Delta Boost <span class="diff-feature-sublabel">(Nuke Style)</span> <span id="val-diff-scale" class="diff-feature-value">1x</span></label>
+              <input type="range" id="adj-diff-scale" min="1" max="256" step="1" value="1" class="diff-feature-slider">
             </div>
-            
-            <div class="adjustment-item" style="margin-top: 10px;">
-              <label class="qc-toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                <input type="checkbox" id="diff-toggle-heatmap" style="width: 14px; height: 14px; accent-color: var(--accent-teal); cursor: pointer;">
-                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">False-Color Thermal Map</span>
+
+            <div class="adjustment-item diff-feature-item diff-thermal-item">
+              <label class="diff-thermal-label" style="cursor: pointer;">
+                <input type="checkbox" id="diff-toggle-heatmap" class="diff-thermal-checkbox">
+                <span class="diff-thermal-text">False-Color Thermal Map</span>
               </label>
             </div>
-            
-            <div class="adjustment-item" style="margin-top: 12px;">
-              <label style="margin-bottom: 6px; display: block;">Color Sensitivity</label>
-              <div class="weight-sliders">
-                <div class="weight-row">
-                  <span class="weight-lbl red">R</span>
-                  <input type="range" id="adj-weight-r" min="0" max="2" step="0.05" value="1">
-                  <span id="val-weight-r" class="weight-val">1.0</span>
-                </div>
-                <div class="weight-row">
-                  <span class="weight-lbl green">G</span>
-                  <input type="range" id="adj-weight-g" min="0" max="2" step="0.05" value="1">
-                  <span id="val-weight-g" class="weight-val">1.0</span>
-                </div>
-                <div class="weight-row">
-                  <span class="weight-lbl blue">B</span>
-                  <input type="range" id="adj-weight-b" min="0" max="2" step="0.05" value="1">
-                  <span id="val-weight-b" class="weight-val">1.0</span>
-                </div>
-              </div>
+
+            <div class="meta-subdivider"></div>
+            <div class="diff-sensitivity-label">Color Sensitivity</div>
+            <div class="diff-sensitivity-row">
+              <span class="diff-sensitivity-ch" style="color:#ff3366">R</span>
+              <input type="range" id="adj-color-r" min="0" max="3" step="0.1" value="1">
+            </div>
+            <div class="diff-sensitivity-row">
+              <span class="diff-sensitivity-ch" style="color:#00ffcc">G</span>
+              <input type="range" id="adj-color-g" min="0" max="3" step="0.1" value="1">
+            </div>
+            <div class="diff-sensitivity-row">
+              <span class="diff-sensitivity-ch" style="color:#3366ff">B</span>
+              <input type="range" id="adj-color-b" min="0" max="3" step="0.1" value="1">
             </div>
           </div>
           
@@ -369,24 +424,27 @@
       <span class="icon">✨</span> Demo Samples
     </button>
 
-    <!-- Side Sample Drawer (Collapsible) -->
+    <!-- Sample Presets backdrop -->
+    <div class="samples-backdrop hidden" id="samples-backdrop"></div>
+
+    <!-- Sample Presets Modal (centered) -->
     <div class="sample-drawer" id="sample-drawer">
       <div class="drawer-header">
         <h3>Sample Pair Presets</h3>
         <button class="btn-close-drawer" id="btn-close-drawer">×</button>
       </div>
       <div class="drawer-body">
-        <div class="sample-card" id="sample-card-spotlight">
+        <div class="sample-card" id="sample-card-blenny">
           <div class="sample-thumb-container">
-            <span class="sample-badge" style="background: rgba(255, 170, 0, 0.1); border-color: rgba(255, 170, 0, 0.2); color: hsl(35, 100%, 55%);">EXR Float</span>
+            <span class="sample-badge" style="background: rgba(0, 180, 255, 0.1); border-color: rgba(0, 180, 255, 0.2); color: #40c8ff;">Photo</span>
             <div class="sample-thumbs">
-              <div class="thumb-a" style="background: var(--accent-indigo)">A</div>
-              <div class="thumb-b" style="background: var(--accent-teal)">B</div>
+              <div class="thumb-a" style="background: linear-gradient(135deg, #1a3a4a, #0d2030)">v01</div>
+              <div class="thumb-b" style="background: linear-gradient(135deg, #1a4a3a, #0d2820)">v02</div>
             </div>
           </div>
           <div class="sample-card-info">
-            <h4>Ring Spotlight Cam Plus (EXR)</h4>
-            <p>Compare two high-fidelity 16-bit float EXR renders (v04 vs v02) with linear Reinhard tonemapping. Inspect 3D lighting distributions, shadows, and fine CAD geometry details.</p>
+            <h4>Blenny — v01 vs v02</h4>
+            <p>Compare two versions of the Blenny image. Use Difference mode, Delta Boost, and the QC tools to find changes between the renders.</p>
           </div>
         </div>
         <div class="sample-card" id="sample-card-cyberpunk">
@@ -429,7 +487,7 @@
       
       <!-- Toolbar Section: Modes Selector -->
       <div class="toolbar-group">
-        <span class="group-label">Mode</span>
+        <span class="group-label">Viewing Modes</span>
         <div class="mode-buttons">
           <button class="btn-tool active" data-mode="side-by-side" title="Synchronized Side-by-Side (D)">
             <svg class="icon" viewBox="0 0 24 24"><path d="M2 4v16h9V4H2zm11 0v16h9V4h-9z"/></svg>
@@ -460,33 +518,67 @@
 
       <div class="toolbar-divider"></div>
 
-      <!-- Toolbar Section: Mode Options (Contextual adjustments like Opacity, Speed) -->
-      <div class="toolbar-group options-group hidden" id="group-mode-options">
-        <span class="group-label" id="option-label">Adjustment</span>
-        <div class="slider-option-container">
-          <input type="range" id="mode-option-slider" min="0" max="100" value="50">
-          <span id="mode-option-val" class="slider-value">50%</span>
+      <!-- Contextual 272px slot — content swaps by mode -->
+      <div class="ctx-slot" id="ctx-slot">
+
+        <!-- Slider mode: split % + H/V -->
+        <div class="ctx-inner hidden" id="ctx-slider">
+          <span class="group-label" id="option-label">Split · <span id="ctx-split-val">50%</span></span>
+          <div class="ctx-row">
+            <input type="range" id="mode-option-slider" min="0" max="100" value="50" style="width:120px">
+            <div class="ctx-toggle-pair">
+              <button class="btn-toggle-option active" id="btn-slider-h">H-Split</button>
+              <button class="btn-toggle-option" id="btn-slider-v">V-Split</button>
+            </div>
+          </div>
         </div>
+
+        <!-- Blend mode: A—range—B -->
+        <div class="ctx-inner hidden" id="ctx-blend">
+          <span class="group-label">Blend · <span id="ctx-blend-val">50%</span></span>
+          <div class="ctx-row">
+            <span class="ctx-endlabel">A</span>
+            <input type="range" id="mode-option-slider-blend" min="0" max="100" value="50" style="width:140px">
+            <span class="ctx-endlabel">B</span>
+          </div>
+        </div>
+
+        <!-- Blink mode: interval slider -->
+        <div class="ctx-inner hidden" id="ctx-blink">
+          <span class="group-label">Blink Interval · <span id="ctx-blink-val">400ms</span></span>
+          <div class="ctx-row">
+            <span class="ctx-hint-text" style="font-size:9px; color:var(--text-dim);">Hit <kbd style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:1px 5px;font-size:9px;font-family:inherit;">Space</kbd> to swap manually</span>
+          </div>
+          <div class="ctx-row">
+            <span class="ctx-endlabel">Fast</span>
+            <input type="range" id="mode-option-slider-blink" min="100" max="1500" step="50" value="400" style="width:170px">
+            <span class="ctx-endlabel">Slow</span>
+          </div>
+        </div>
+
+        <!-- Tile Grid mode: tile size + grid lines -->
+        <div class="ctx-inner hidden" id="ctx-tile">
+          <span class="group-label">Tile Size · <span id="ctx-tile-val">120px</span></span>
+          <div class="ctx-row">
+            <input type="range" id="mode-option-slider-tile" min="40" max="260" step="10" value="120" style="width:120px">
+            <button class="btn-toggle-option" id="btn-toggle-tile-grid-lines">Show Grid Lines</button>
+          </div>
+        </div>
+
+        <!-- Side-by-Side / Difference: dim hint -->
+        <div class="ctx-inner ctx-hint hidden" id="ctx-hint">
+          <span class="ctx-dot"></span>
+          <span id="ctx-hint-text" class="ctx-hint-text"></span>
+        </div>
+
+        <!-- Legacy hidden group kept for JS compatibility -->
+        <div class="hidden" id="group-mode-options"></div>
+        <div class="hidden" id="blink-spacebar-hint"></div>
+        <div class="hidden" id="group-slider-orientation"></div>
+        <div class="hidden" id="group-tile-grid-options"></div>
       </div>
 
-      <!-- Slider Orientation Switch (Only visible in Slider mode) -->
-      <div class="toolbar-group hidden" id="group-slider-orientation">
-        <span class="group-label">Split Layout</span>
-        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 2px;">
-          <button class="btn-toggle-option active" id="btn-slider-h" title="Horizontal Split (Left/Right)">H-Split</button>
-          <button class="btn-toggle-option" id="btn-slider-v" title="Vertical Split (Top/Bottom)">V-Split</button>
-        </div>
-      </div>
-
-      <!-- Tile Grid Options (Only visible in Tile Grid mode) -->
-      <div class="toolbar-group hidden" id="group-tile-grid-options">
-        <span class="group-label">Grid Lines</span>
-        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 2px;">
-          <button class="btn-toggle-option" id="btn-toggle-tile-grid-lines" title="Toggle visible grid lines on the mosaic cells">Show Grid</button>
-        </div>
-      </div>
-
-      <div class="toolbar-divider hidden" id="divider-mode-options"></div>
+      <div class="toolbar-divider" id="divider-mode-options"></div>
 
       <!-- Toolbar Section: Alpha transparency backgrounds -->
       <div class="toolbar-group">
@@ -509,28 +601,36 @@
 
       <div class="toolbar-divider"></div>
 
-      <!-- Toolbar Section: Quick Utils (Reload, Swap, Grid, Shortcuts Help) -->
-      <div class="toolbar-group">
-        <span class="group-label">Utilities</span>
+      <!-- Toolbar Section: Utilities (label inline left, buttons horizontal with icon+text) -->
+      <div class="toolbar-group-util">
+        <span class="group-label util-label">Utilities</span>
         <div class="util-buttons">
           <button class="btn-util active" id="btn-toggle-sync" title="Lock/Unlock Viewport Synchronization (Y)">
             <svg class="icon icon-lock" viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
             <svg class="icon icon-unlock hidden" viewBox="0 0 24 24"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z"/></svg>
+            <span class="util-label-text" id="util-lock-label">Views Locked</span>
           </button>
           <button class="btn-util" id="btn-toggle-eyedropper" title="Toggle RGB Pixel Inspector / Eyedropper (I)">
             <svg class="icon" viewBox="0 0 24 24"><path d="M17.41 2.58a2 2 0 0 0-2.83 0l-2.5 2.5 3.54 3.53 2.5-2.5a2 2 0 0 0 0-2.83l-0.71-0.7M10.66 6.5L3 14.16V18h3.84l7.66-7.66-3.84-3.84zM5 16v-1.02l5.66-5.66 1.02 1.02L6.02 16H5z"/></svg>
+            <span class="util-label-text">Eyedropper</span>
           </button>
           <button class="btn-util" id="btn-swap-images" title="Swap Image A and Image B (X)">
             <svg class="icon" viewBox="0 0 24 24"><path d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z"/></svg>
+            <span class="util-label-text">Swap Views</span>
           </button>
-          <button class="btn-util" id="btn-toggle-grid" title="Toggle Fine Grid Alignment Overlay (L)">
+          <button class="btn-util" id="btn-reset-view-toolbar" title="Reset Views to Fit (R)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3 5v4h2V7h2V5H3zm0 14h4v-2H5v-2H3v4zM17 5v2h2v2h2V5h-4zm2 12h-2v2h4v-4h-2v2zM9 9h6v6H9z"/></svg>
+            <span class="util-label-text">Reset Views</span>
+          </button>
+          <button class="btn-util icon-only" id="btn-toggle-grid" title="Toggle Fine Grid Alignment Overlay (L)">
             <svg class="icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 20H4v-4h4v4zm0-6H4v-4h4v4zm0-6H4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4z"/></svg>
           </button>
-          <button class="btn-util btn-danger" id="btn-clear-images" title="Clear Loaded Images">
+          <button class="btn-util icon-only btn-danger" id="btn-clear-images" title="Clear Loaded Images">
             <svg class="icon" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </button>
           <button class="btn-util" id="btn-show-help" title="Keyboard Shortcuts & Help (H)">
-            <span style="font-weight: 700; font-size: 14px;">?</span>
+            <svg class="icon" viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
+            <span class="util-label-text">Help</span>
           </button>
         </div>
       </div>
@@ -620,6 +720,7 @@
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/EXRLoader.js"></script>
+  <script src="samples-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

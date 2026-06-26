@@ -25,8 +25,11 @@ const state = {
   isPanning: false,
   activePanSlot: null, // 'both' | 'a' | 'b'
   
-  syncViewports: true, // true = lock views, false = independent views
+  syncViewports: true,
   eyedropperActive: false,
+  colorSensitivityR: 1,
+  colorSensitivityG: 1,
+  colorSensitivityB: 1,
   histogramChannel: 'all', // 'all' (RGB composite luma) | 'r' | 'g' | 'b' | 'luma' (Y)
   
   imageA: { loaded: false, width: 0, height: 0, name: '', size: 0, element: null, zoom: 1, panX: 0, panY: 0, canvas: null, ctx: null, startX: 0, startY: 0, samples: null, bitDepth: '' },
@@ -92,12 +95,6 @@ const elements = {
   diffOnlyAdjustments: document.getElementById('diff-only-adjustments'),
   adjDiffScale: document.getElementById('adj-diff-scale'),
   valDiffScale: document.getElementById('val-diff-scale'),
-  adjWeightR: document.getElementById('adj-weight-r'),
-  valWeightR: document.getElementById('val-weight-r'),
-  adjWeightG: document.getElementById('adj-weight-g'),
-  valWeightG: document.getElementById('val-weight-g'),
-  adjWeightB: document.getElementById('adj-weight-b'),
-  valWeightB: document.getElementById('val-weight-b'),
   btnResetAdjustments: document.getElementById('btn-reset-adjustments'),
   
   // Eyedropper Elements
@@ -110,6 +107,7 @@ const elements = {
   tooltipValA: document.getElementById('tooltip-val-a'),
   tooltipValB: document.getElementById('tooltip-val-b'),
   tooltipAlert: document.getElementById('tooltip-alert'),
+  tooltipDelta: document.getElementById('tooltip-delta'),
   
   // Metadata fields
   metaNameA: document.getElementById('meta-name-a'),
@@ -177,6 +175,8 @@ function updateViewerTransforms() {
   elements.imgB.style.transform = `translate3d(${state.imageB.panX}px, ${state.imageB.panY}px, 0px) scale(${state.imageB.zoom})`;
   const overlayCanvasB = document.getElementById('canvas-b-overlay');
   if (overlayCanvasB) overlayCanvasB.style.transform = elements.imgB.style.transform;
+  const thermalCanv = document.getElementById('thermal-canvas');
+  if (thermalCanv) thermalCanv.style.transform = elements.imgB.style.transform;
   
   // Update metadata stats
   if (state.syncViewports) {
@@ -228,14 +228,14 @@ function updateSvgFilter() {
 // Smart filter apply logic: runs through GPU filters only when calibration values deviate from neutral
 function applyFilters() {
   updateSvgFilter();
-  
-  const hasAdj = state.adjustments.exposure !== 1.0 || 
-                 state.adjustments.gamma !== 1.0 || 
+
+  const hasAdj = state.adjustments.exposure !== 1.0 ||
+                 state.adjustments.gamma !== 1.0 ||
                  state.adjustments.diffScale !== 1.0 ||
                  state.adjustments.weightR !== 1.0 ||
                  state.adjustments.weightG !== 1.0 ||
                  state.adjustments.weightB !== 1.0;
-  
+
   if (hasAdj || state.mode === 'difference') {
     elements.panesContainer.style.filter = 'url(#diff-adjust-filter)';
   } else {
@@ -250,16 +250,24 @@ function setMode(mode) {
   // Stop blinking if changing away from blink mode
   if (mode !== 'blink') {
     stopBlinking();
+    const blinkHint = document.getElementById('blink-spacebar-hint');
+    if (blinkHint) blinkHint.classList.add('hidden');
   }
-  
+
+  // Hide thermal canvas when leaving difference mode; reset state
+  if (mode !== 'difference' && state.diffHeatmapActive) {
+    state.diffHeatmapActive = false;
+    const cb = document.getElementById('diff-toggle-heatmap');
+    if (cb) cb.checked = false;
+  }
+  const thermalCanvas = document.getElementById('thermal-canvas');
+  if (thermalCanvas) thermalCanvas.classList.add('hidden');
+
   // Update classes on main viewport
   elements.viewport.className = ''; // Reset
   elements.viewport.classList.add(`mode-${mode}`, state.bgMode);
   if (state.eyedropperActive) {
     elements.viewport.classList.add('eyedropper-active');
-  }
-  if (state.diffHeatmapActive && mode === 'difference') {
-    elements.viewport.classList.add('diff-heatmap-active');
   }
   
   // Update active tool button styling
@@ -279,60 +287,56 @@ function setMode(mode) {
   }
   elements.modeBadge.textContent = modeName;
   
-  // Contextual controls configuration
-  if (mode === 'blend') {
-    elements.modeOptionGroup.classList.remove('hidden');
-    elements.modeOptionDivider.classList.remove('hidden');
-    elements.modeOptionLabel.textContent = 'Opacity';
-    elements.modeOptionSlider.min = 0;
-    elements.modeOptionSlider.max = 100;
-    elements.modeOptionSlider.value = state.blendOpacity * 100;
-    elements.modeOptionVal.textContent = `${Math.round(state.blendOpacity * 100)}%`;
+  // Contextual slot — hide all inner panels, show the right one
+  ['ctx-slider','ctx-blend','ctx-blink','ctx-tile','ctx-hint'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+
+  if (mode === 'slider') {
+    const ctxEl = document.getElementById('ctx-slider');
+    if (ctxEl) ctxEl.classList.remove('hidden');
+    const splitVal = document.getElementById('ctx-split-val');
+    if (splitVal) splitVal.textContent = `${Math.round(state.sliderPos * 100)}%`;
+    const sl = document.getElementById('mode-option-slider');
+    if (sl) { sl.min = 0; sl.max = 100; sl.value = state.sliderPos * 100; }
+  } else if (mode === 'blend') {
+    const ctxEl = document.getElementById('ctx-blend');
+    if (ctxEl) ctxEl.classList.remove('hidden');
+    const blendVal = document.getElementById('ctx-blend-val');
+    if (blendVal) blendVal.textContent = `${Math.round(state.blendOpacity * 100)}%`;
+    const sl = document.getElementById('mode-option-slider-blend');
+    if (sl) sl.value = state.blendOpacity * 100;
     elements.viewport.style.setProperty('--blend-opacity', state.blendOpacity);
   } else if (mode === 'blink') {
-    elements.modeOptionGroup.classList.remove('hidden');
-    elements.modeOptionDivider.classList.remove('hidden');
-    elements.modeOptionLabel.textContent = 'Blink Interval';
-    elements.modeOptionSlider.min = 100;
-    elements.modeOptionSlider.max = 1500;
-    elements.modeOptionSlider.value = state.blinkInterval;
-    elements.modeOptionVal.textContent = `${state.blinkInterval}ms`;
+    const ctxEl = document.getElementById('ctx-blink');
+    if (ctxEl) ctxEl.classList.remove('hidden');
+    const blinkVal = document.getElementById('ctx-blink-val');
+    if (blinkVal) blinkVal.textContent = `${state.blinkInterval}ms`;
+    const sl = document.getElementById('mode-option-slider-blink');
+    if (sl) sl.value = state.blinkInterval;
     startBlinking();
-  } else if (mode === 'slider') {
-    elements.modeOptionGroup.classList.remove('hidden');
-    elements.modeOptionDivider.classList.remove('hidden');
-    elements.modeOptionLabel.textContent = 'Split';
-    elements.modeOptionSlider.min = 0;
-    elements.modeOptionSlider.max = 100;
-    elements.modeOptionSlider.value = state.sliderPos * 100;
-    elements.modeOptionVal.textContent = `${Math.round(state.sliderPos * 100)}%`;
   } else if (mode === 'tile-grid') {
-    elements.modeOptionGroup.classList.remove('hidden');
-    elements.modeOptionDivider.classList.remove('hidden');
-    elements.modeOptionLabel.textContent = 'Tile Size';
-    elements.modeOptionSlider.min = 20;
-    elements.modeOptionSlider.max = 400;
-    elements.modeOptionSlider.value = state.tileSize;
-    elements.modeOptionVal.textContent = `${state.tileSize}px`;
+    const ctxEl = document.getElementById('ctx-tile');
+    if (ctxEl) ctxEl.classList.remove('hidden');
+    const tileVal = document.getElementById('ctx-tile-val');
+    if (tileVal) tileVal.textContent = `${state.tileSize}px`;
+    const sl = document.getElementById('mode-option-slider-tile');
+    if (sl) sl.value = state.tileSize;
     elements.viewport.style.setProperty('--tile-size', `${state.tileSize}px`);
   } else {
-    elements.modeOptionGroup.classList.add('hidden');
-    elements.modeOptionDivider.classList.add('hidden');
+    const hintEl = document.getElementById('ctx-hint');
+    const hintText = document.getElementById('ctx-hint-text');
+    if (hintEl) hintEl.classList.remove('hidden');
+    const hintMap = {
+      'side-by-side': 'Drag images to compare',
+      'difference': 'Highlights pixel-level changes',
+    };
+    if (hintText) hintText.textContent = hintMap[mode] || '';
   }
-  
-  // Toggle visibility of Slider split orientation buttons
-  if (mode === 'slider') {
-    elements.groupSliderOrientation.classList.remove('hidden');
-  } else {
-    elements.groupSliderOrientation.classList.add('hidden');
-  }
-  
-  // Toggle visibility of Tile Grid options
-  if (mode === 'tile-grid') {
-    elements.groupTileGridOptions.classList.remove('hidden');
-  } else {
-    elements.groupTileGridOptions.classList.add('hidden');
-  }
+
+  // Legacy: keep groupSliderOrientation/groupTileGridOptions refs from breaking
+  // (their elements now are hidden placeholders — no-op toggles are fine)
   
   // Hide/Show Difference Boost Calibration controls in HUD
   if (mode === 'difference') {
@@ -499,70 +503,65 @@ function handlePanEnd() {
   state.activePanSlot = null;
 }
 
+// Returns the effective pane dimensions for the current mode.
+// In side-by-side mode each pane is half the viewport width.
+function getEffectivePaneDimensions() {
+  const w = elements.viewport.clientWidth;
+  const h = elements.viewport.clientHeight;
+  return {
+    w: state.mode === 'side-by-side' ? w / 2 : w,
+    h
+  };
+}
+
 // Presets Algorithms for Fit, Fill, and 1:1 Scales
 function getFitTransform(imgState) {
   if (!imgState.loaded) return { zoom: 1, panX: 0, panY: 0 };
-  
-  const viewportW = elements.viewport.clientWidth;
-  const viewportH = elements.viewport.clientHeight;
-  
-  // Calculate relative to centered view width/height
+
+  const { w: paneW, h: paneH } = getEffectivePaneDimensions();
   const w = imgState.width;
   const h = imgState.height;
-  
-  const viewportRatio = viewportW / viewportH;
+
+  const paneRatio = paneW / paneH;
   const imgRatio = w / h;
-  
-  let fitScale = 1;
-  if (imgRatio > viewportRatio) {
-    fitScale = viewportW / w;
-  } else {
-    fitScale = viewportH / h;
-  }
-  
-  const zoom = fitScale * 0.85; // 15% border margin
-  const panX = (viewportW - w * zoom) / 2;
-  const panY = (viewportH - h * zoom) / 2;
-  
+
+  const fitScale = imgRatio > paneRatio ? paneW / w : paneH / h;
+
+  const zoom = fitScale * 0.9; // 10% border margin
+  const panX = (paneW - w * zoom) / 2;
+  const panY = (paneH - h * zoom) / 2;
+
   return { zoom, panX, panY };
 }
 
 function getFillTransform(imgState) {
   if (!imgState.loaded) return { zoom: 1, panX: 0, panY: 0 };
-  
-  const viewportW = elements.viewport.clientWidth;
-  const viewportH = elements.viewport.clientHeight;
-  
+
+  const { w: paneW, h: paneH } = getEffectivePaneDimensions();
   const w = imgState.width;
   const h = imgState.height;
-  
-  const viewportRatio = viewportW / viewportH;
+
+  const paneRatio = paneW / paneH;
   const imgRatio = w / h;
-  
-  let fillScale = 1;
-  if (imgRatio > viewportRatio) {
-    fillScale = viewportH / h;
-  } else {
-    fillScale = viewportW / w;
-  }
-  
+
+  const fillScale = imgRatio > paneRatio ? paneH / h : paneW / w;
+
   const zoom = fillScale;
-  const panX = (viewportW - w * zoom) / 2;
-  const panY = (viewportH - h * zoom) / 2;
-  
+  const panX = (paneW - w * zoom) / 2;
+  const panY = (paneH - h * zoom) / 2;
+
   return { zoom, panX, panY };
 }
 
 function get11Transform(imgState) {
   if (!imgState.loaded) return { zoom: 1, panX: 0, panY: 0 };
-  
-  const viewportW = elements.viewport.clientWidth;
-  const viewportH = elements.viewport.clientHeight;
-  
+
+  const { w: paneW, h: paneH } = getEffectivePaneDimensions();
+
   const zoom = 1.0; // 100% original size
-  const panX = (viewportW - imgState.width) / 2;
-  const panY = (viewportH - imgState.height) / 2;
-  
+  const panX = (paneW - imgState.width) / 2;
+  const panY = (paneH - imgState.height) / 2;
+
   return { zoom, panX, panY };
 }
 
@@ -593,9 +592,9 @@ function applyPreset(type) {
   showToast(`Applied preset: ${type.toUpperCase()}`);
 }
 
-// Reset Viewport / Center images at 1:1 original scale
+// Fit images to fill the visible pane area (used on initial load and reset)
 function fitToScreen() {
-  applyPreset('11');
+  applyPreset('fit');
 }
 
 // Aligns Image B to exactly match Image A's coordinates
@@ -886,6 +885,18 @@ function renderHistogram() {
     ctx.fillText("WAITING FOR SIGNAL...", width / 2, height / 2 + 3);
     return;
   }
+
+  // Pixel reads unavailable (canvas taint from file:// preset loading)
+  const samplesUnavailable = (state.imageA.loaded && !state.imageA.samples) &&
+                             (state.imageB.loaded && !state.imageB.samples);
+  if (samplesUnavailable) {
+    ctx.fillStyle = 'rgba(255, 170, 0, 0.5)';
+    ctx.font = '9px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("Use drag & drop for scope data", width / 2, height / 2 - 4);
+    ctx.fillText("(file:// pixel reads blocked)", width / 2, height / 2 + 9);
+    return;
+  }
   
   const drawCurve = (imageState, isFilled, strokeColor, fillColor, lineWidth) => {
     if (!imageState.loaded || !imageState.samples) return;
@@ -1084,6 +1095,15 @@ function updateImageCanvas(slot) {
   
   imgState.canvas = canvas;
   imgState.ctx = ctx;
+}
+
+// Load a preset image. Prefers the bundled base64 data URI (window.SAMPLE_DATA),
+// which avoids file:// canvas-taint so pixel reads (eyedropper, histogram,
+// thermal map) work without an HTTP server. Falls back to the direct path.
+function loadPresetImage(key, filename, slot) {
+  const dataUri = window.SAMPLE_DATA && window.SAMPLE_DATA[key];
+  const src = dataUri || `assets/${key}.${key.startsWith('blenny') ? 'png' : 'jpg'}`;
+  setImageSource(src, filename, 0, slot);
 }
 
 function setImageSource(src, filename, size, slot) {
@@ -1366,6 +1386,10 @@ function loadSamplePair(type) {
         loadSmartwatchPreset();
       } else if (type === 'headset' || type === 'photo') {
         loadHeadsetPreset();
+      } else if (type === 'blenny') {
+        loadBlennyPreset();
+      } else if (type === 'center') {
+        loadCenterTestPreset();
       }
     } catch (err) {
       console.error(err);
@@ -1391,56 +1415,180 @@ function loadExrPreset(src, filename, size, slot) {
   const imgEl = isSlotA ? elements.imgA : elements.imgB;
   const emptyEl = isSlotA ? elements.emptyA : elements.emptyB;
   const imageState = isSlotA ? state.imageA : state.imageB;
-  
+
   document.getElementById('loader-' + slot).classList.remove('hidden');
   emptyEl.classList.add('hidden');
   imgEl.classList.add('hidden');
-  
-  fetch(src)
-    .then(res => {
-      if (!res.ok) throw new Error("Fetch failed");
-      return res.arrayBuffer();
-    })
-    .then(buffer => {
-      imageState.bitDepth = '16-bit Float';
-      const loader = new THREE.EXRLoader();
-      const parsed = loader.parse(buffer);
-      imageState.bitDepth = (parsed.type === THREE.FloatType) ? '32-bit Float' : '16-bit Float';
-      
-      const canvas = convertExrToCanvas(parsed);
-      const dataUrl = canvas.toDataURL('image/png');
-      setImageSource(dataUrl, filename, size, slot);
-    })
-    .catch(err => {
-      console.error("Error loading preset EXR:", err);
-      document.getElementById('loader-' + slot).classList.add('hidden');
-      emptyEl.classList.remove('hidden');
-      showToast(`Failed to load EXR preset: ${filename}`);
-    });
+
+  const showFailure = (reason) => {
+    console.error('EXR load failed:', src, reason);
+    document.getElementById('loader-' + slot).classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    showToast(`Failed to load EXR: ${filename} — ${reason}`);
+  };
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', src, true);
+  xhr.responseType = 'arraybuffer';
+
+  xhr.onload = function() {
+    // status 0 = success on file://, 200 = success on http://
+    if (xhr.status === 200 || xhr.status === 0) {
+      const buffer = xhr.response;
+      if (!buffer || buffer.byteLength === 0) {
+        showFailure('empty response — open via a local server (e.g. VS Code Live Server)');
+        return;
+      }
+      try {
+        imageState.bitDepth = '16-bit Float';
+        const loader = new THREE.EXRLoader();
+        const parsed = loader.parse(buffer);
+        imageState.bitDepth = (parsed.type === THREE.FloatType) ? '32-bit Float' : '16-bit Float';
+        const canvas = convertExrToCanvas(parsed);
+        setImageSource(canvas.toDataURL('image/png'), filename, size, slot);
+      } catch (err) {
+        showFailure('decode error — ' + err.message);
+      }
+    } else {
+      showFailure('HTTP ' + xhr.status);
+    }
+  };
+
+  xhr.onerror = function() {
+    showFailure('network error — open via a local server (e.g. VS Code Live Server or python -m http.server)');
+  };
+
+  xhr.send();
+}
+
+
+
+function loadBlennyPreset() {
+  showToast('Loading Blenny v01 vs v02…');
+  loadPresetImage('blenny01_v01', 'blenny01_v01.png', 'a');
+  setTimeout(() => loadPresetImage('blenny01_v02', 'blenny01_v02.png', 'b'), 150);
 }
 
 function loadSmartwatchPreset() {
   showToast('Loading luxury smartwatch 3D renders...');
-  
-  // Set Image A source (original high-res render master)
-  setImageSource('assets/smartwatch_a.jpg', 'smartwatch_3D_render_master.png', 164689, 'a');
-  
-  // Set Image B source (firmware edit & compression artifacts)
-  setTimeout(() => {
-    setImageSource('assets/smartwatch_b.jpg', 'smartwatch_compressed_fw_v1_0.jpg', 61572, 'b');
-  }, 200);
+  loadPresetImage('smartwatch_a', 'smartwatch_3D_render_master.png', 'a');
+  setTimeout(() => loadPresetImage('smartwatch_b', 'smartwatch_compressed_fw_v1_0.jpg', 'b'), 200);
 }
 
 function loadHeadsetPreset() {
   showToast('Loading VR headset optics QA renders...');
-  
-  // Set Image A source (original high-res render master)
-  setImageSource('assets/vr_headset_a.jpg', 'vr_headset_render_master.png', 293347, 'a');
-  
-  // Set Image B source (chromatic aberration shift & microscopic lens scratch)
+  loadPresetImage('vr_headset_a', 'vr_headset_render_master.png', 'a');
+  setTimeout(() => loadPresetImage('vr_headset_b', 'vr_headset_optics_drift_qc.jpg', 'b'), 200);
+}
+
+function loadCenterTestPreset() {
+  showToast('Generating Perfect Center alignment test...');
+
+  const W = 900, H = 600;
+
+  function drawProductShape(ctx, cx, cy) {
+    // Dark space background
+    const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.6);
+    bg.addColorStop(0, '#12121e');
+    bg.addColorStop(1, '#06060e');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid guide lines (very faint)
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // Outer glow ring
+    const glow = ctx.createRadialGradient(cx, cy, 110, cx, cy, 175);
+    glow.addColorStop(0, 'rgba(0,200,255,0.18)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, 175, 0, Math.PI * 2); ctx.fill();
+
+    // Body: rounded-rect product body
+    const bw = 160, bh = 240;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    ctx.roundRect(-bw / 2, -bh / 2, bw, bh, 28);
+    const bodyGrad = ctx.createLinearGradient(-bw / 2, -bh / 2, bw / 2, bh / 2);
+    bodyGrad.addColorStop(0, '#2a2a3c');
+    bodyGrad.addColorStop(0.5, '#1c1c2c');
+    bodyGrad.addColorStop(1, '#0e0e18');
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,130,200,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Lens circle
+    const lensGrad = ctx.createRadialGradient(-16, -16, 4, 0, 0, 65);
+    lensGrad.addColorStop(0, '#4466ff');
+    lensGrad.addColorStop(0.4, '#1a1a40');
+    lensGrad.addColorStop(1, '#0a0a20');
+    ctx.beginPath(); ctx.arc(0, -30, 65, 0, Math.PI * 2);
+    ctx.fillStyle = lensGrad; ctx.fill();
+    ctx.strokeStyle = 'rgba(80,100,220,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+
+    // Inner lens ring
+    ctx.beginPath(); ctx.arc(0, -30, 44, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(100,140,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+
+    // Lens highlight
+    ctx.beginPath(); ctx.arc(-18, -52, 14, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
+
+    // Flash / indicator dot
+    ctx.beginPath(); ctx.arc(52, -80, 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff4466'; ctx.fill();
+    ctx.beginPath(); ctx.arc(52, -80, 12, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,60,90,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+
+    // Bottom bar
+    ctx.beginPath(); ctx.roundRect(-55, 70, 110, 22, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
+
+    ctx.restore();
+
+    // Crosshair center guides (cyan)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,255,204,0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Corner registration marks
+    const m = 20;
+    [
+      [m, m], [W - m, m], [m, H - m], [W - m, H - m]
+    ].forEach(([x, y]) => {
+      const sx = x < W / 2 ? 1 : -1, sy = y < H / 2 ? 1 : -1;
+      ctx.strokeStyle = 'rgba(0,255,204,0.35)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + sx * 16, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + sy * 16); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // Image A: object exactly centered
+  const canvasA = document.createElement('canvas');
+  canvasA.width = W; canvasA.height = H;
+  const ctxA = canvasA.getContext('2d');
+  drawProductShape(ctxA, W / 2, H / 2);
+  setImageSource(canvasA.toDataURL('image/png'), 'center_test_A_CENTERED.png', 0, 'a');
+
+  // Image B: same object shifted 42px right and 28px down (~4.7% / 4.7% offset)
   setTimeout(() => {
-    setImageSource('assets/vr_headset_b.jpg', 'vr_headset_optics_drift_qc.jpg', 239557, 'b');
-  }, 200);
+    const canvasB = document.createElement('canvas');
+    canvasB.width = W; canvasB.height = H;
+    const ctxB = canvasB.getContext('2d');
+    drawProductShape(ctxB, W / 2 + 42, H / 2 + 28);
+    setImageSource(canvasB.toDataURL('image/png'), 'center_test_B_OFFSET_42x28.png', 0, 'b');
+  }, 100);
 }
 
 
@@ -1454,15 +1602,18 @@ function toggleSync() {
   const iconLock = elements.btnToggleSync.querySelector('.icon-lock');
   const iconUnlock = elements.btnToggleSync.querySelector('.icon-unlock');
   
+  const lockLabel = document.getElementById('util-lock-label');
   if (state.syncViewports) {
     elements.btnToggleSync.classList.add('active');
     iconLock.classList.remove('hidden');
     iconUnlock.classList.add('hidden');
+    if (lockLabel) lockLabel.textContent = 'Views Locked';
     showToast('Viewport Sync: LOCKED (Offset Preserved)');
   } else {
     elements.btnToggleSync.classList.remove('active');
     iconLock.classList.add('hidden');
     iconUnlock.classList.remove('hidden');
+    if (lockLabel) lockLabel.textContent = 'Views Unlocked';
     showToast('Viewport Sync: UNLOCKED (Independent Panning)');
   }
   
@@ -1581,9 +1732,15 @@ function updateEyedropper(event) {
     const diffB = Math.abs(colorA.b - colorB.b);
     const diffA = Math.abs(colorA.a - colorB.a);
     const maxDiff = Math.max(diffR, diffG, diffB, diffA);
-    
+
+    // Numeric ΔE (Euclidean RGB distance, 0-100 scale)
+    const deltaE = Math.sqrt(diffR * diffR + diffG * diffG + diffB * diffB) / Math.sqrt(3 * 255 * 255) * 100;
+    if (elements.tooltipDelta) {
+      elements.tooltipDelta.textContent = `ΔE ${deltaE.toFixed(1)}`;
+      elements.tooltipDelta.classList.remove('hidden');
+    }
+
     if (maxDiff >= 10) {
-      // Tier 2: Large difference (Red Alert)
       elements.tooltip.classList.remove('alert-warn');
       elements.tooltip.classList.add('alert-active');
       elements.tooltipAlert.textContent = '🚨 CRITICAL DIFF';
@@ -1591,7 +1748,6 @@ function updateEyedropper(event) {
       elements.tooltipAlert.style.textShadow = '0 0 8px rgba(255, 51, 102, 0.5)';
       elements.tooltipAlert.classList.remove('hidden');
     } else if (maxDiff > 0) {
-      // Tier 1: Tiny/Minor difference (Amber Warning)
       elements.tooltip.classList.remove('alert-active');
       elements.tooltip.classList.add('alert-warn');
       elements.tooltipAlert.textContent = '⚠️ MINOR DIFF';
@@ -1599,13 +1755,13 @@ function updateEyedropper(event) {
       elements.tooltipAlert.style.textShadow = '0 0 8px rgba(255, 170, 0, 0.5)';
       elements.tooltipAlert.classList.remove('hidden');
     } else {
-      // Identical pixels
       elements.tooltip.classList.remove('alert-active', 'alert-warn');
       elements.tooltipAlert.classList.add('hidden');
     }
   } else {
     elements.tooltip.classList.remove('alert-active', 'alert-warn');
     elements.tooltipAlert.classList.add('hidden');
+    if (elements.tooltipDelta) elements.tooltipDelta.classList.add('hidden');
   }
 }
 
@@ -1621,17 +1777,10 @@ function resetAdjustments() {
   elements.adjExposure.value = 1.0;
   elements.adjGamma.value = 1.0;
   elements.adjDiffScale.value = 1.0;
-  elements.adjWeightR.value = 1.0;
-  elements.adjWeightG.value = 1.0;
-  elements.adjWeightB.value = 1.0;
-  
   // Sync UI labels
   elements.valExposure.textContent = '1.00x';
   elements.valGamma.textContent = '1.00';
   elements.valDiffScale.textContent = '1x';
-  elements.valWeightR.textContent = '1.0';
-  elements.valWeightG.textContent = '1.0';
-  elements.valWeightB.textContent = '1.0';
   
   applyFilters();
   renderHistogram();
@@ -1725,6 +1874,14 @@ function toggleGrid() {
 //   NOTIFICATIONS TOAST ENGINE
 // ==========================================================================
 
+// Debounced QC render — avoids running expensive full-image pixel loops on
+// every tick of a range slider while the user is still dragging.
+let _qcRenderTimer = null;
+function scheduleQcRender() {
+  clearTimeout(_qcRenderTimer);
+  _qcRenderTimer = setTimeout(renderQCOverlays, 100);
+}
+
 let toastTimerId = null;
 function showToast(message) {
   if (toastTimerId) {
@@ -1767,32 +1924,60 @@ function initEvents() {
     });
   });
   
-  // 6. Contextual Option Slider interactions
-  elements.modeOptionSlider.addEventListener('input', (e) => {
-    const val = e.target.value;
-    
-    if (state.mode === 'blink') {
-      elements.modeOptionVal.textContent = `${val}ms`;
-    } else if (state.mode === 'tile-grid') {
-      elements.modeOptionVal.textContent = `${val}px`;
-    } else {
-      elements.modeOptionVal.textContent = `${val}%`;
-    }
-    
-    if (state.mode === 'slider') {
+  // 6. Contextual slot slider interactions (new per-mode sliders)
+  const sliderSplit = document.getElementById('mode-option-slider');
+  if (sliderSplit) {
+    sliderSplit.addEventListener('input', (e) => {
+      const val = e.target.value;
       state.sliderPos = val / 100;
       elements.viewport.style.setProperty('--slider-pos', state.sliderPos);
       elements.viewport.style.setProperty('--slider-pos-pct', `${val}%`);
-    } else if (state.mode === 'blend') {
+      const dispEl = document.getElementById('ctx-split-val');
+      if (dispEl) dispEl.textContent = `${val}%`;
+    });
+  }
+
+  const sliderBlend = document.getElementById('mode-option-slider-blend');
+  if (sliderBlend) {
+    sliderBlend.addEventListener('input', (e) => {
+      const val = e.target.value;
       state.blendOpacity = val / 100;
       elements.viewport.style.setProperty('--blend-opacity', state.blendOpacity);
-    } else if (state.mode === 'blink') {
-      state.blinkInterval = parseInt(val);
-      startBlinking(); // Restart interval with new speed parameter
-    } else if (state.mode === 'tile-grid') {
-      state.tileSize = parseInt(val);
+      const dispEl = document.getElementById('ctx-blend-val');
+      if (dispEl) dispEl.textContent = `${val}%`;
+    });
+  }
+
+  const sliderBlink = document.getElementById('mode-option-slider-blink');
+  if (sliderBlink) {
+    sliderBlink.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.blinkInterval = val;
+      startBlinking();
+      const dispEl = document.getElementById('ctx-blink-val');
+      if (dispEl) dispEl.textContent = `${val}ms`;
+    });
+  }
+
+  const sliderTile = document.getElementById('mode-option-slider-tile');
+  if (sliderTile) {
+    sliderTile.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.tileSize = val;
       elements.viewport.style.setProperty('--tile-size', `${val}px`);
-    }
+      const dispEl = document.getElementById('ctx-tile-val');
+      if (dispEl) dispEl.textContent = `${val}px`;
+    });
+  }
+
+  // Color sensitivity sliders (Difference mode)
+  ['r','g','b'].forEach(ch => {
+    const sl = document.getElementById(`adj-color-${ch}`);
+    if (!sl) return;
+    sl.addEventListener('input', () => {
+      state[`colorSensitivity${ch.toUpperCase()}`] = parseFloat(sl.value);
+      applyFilters();
+    });
   });
   
   // 7. Background switcher buttons
@@ -1811,12 +1996,26 @@ function initEvents() {
   elements.btnResetView.addEventListener('click', fitToScreen);
   
   // 10. Sample Preset triggers
-  elements.btnSamplesToggle.addEventListener('click', () => {
-    elements.sampleDrawer.classList.toggle('open');
-  });
-  elements.btnCloseDrawer.addEventListener('click', () => {
+  function openSamplesModal() {
+    elements.sampleDrawer.classList.add('open');
+    const backdrop = document.getElementById('samples-backdrop');
+    if (backdrop) backdrop.classList.remove('hidden');
+  }
+  function closeSamplesModal() {
     elements.sampleDrawer.classList.remove('open');
+    const backdrop = document.getElementById('samples-backdrop');
+    if (backdrop) backdrop.classList.add('hidden');
+  }
+  elements.btnSamplesToggle.addEventListener('click', () => {
+    elements.sampleDrawer.classList.contains('open') ? closeSamplesModal() : openSamplesModal();
   });
+  elements.btnCloseDrawer.addEventListener('click', closeSamplesModal);
+  const samplesBackdrop = document.getElementById('samples-backdrop');
+  if (samplesBackdrop) samplesBackdrop.addEventListener('click', closeSamplesModal);
+
+  // Reset views toolbar button
+  const btnResetViewToolbar = document.getElementById('btn-reset-view-toolbar');
+  if (btnResetViewToolbar) btnResetViewToolbar.addEventListener('click', fitToScreen);
   const btnSampleSpotlight = document.getElementById('sample-card-spotlight');
   if (btnSampleSpotlight) {
     btnSampleSpotlight.addEventListener('click', () => {
@@ -1829,6 +2028,18 @@ function initEvents() {
   document.getElementById('sample-card-photo').addEventListener('click', () => {
     loadSamplePair('headset');
   });
+  const btnSampleCenter = document.getElementById('sample-card-center');
+  if (btnSampleCenter) {
+    btnSampleCenter.addEventListener('click', () => {
+      loadSamplePair('center');
+    });
+  }
+  const btnSampleBlenny = document.getElementById('sample-card-blenny');
+  if (btnSampleBlenny) {
+    btnSampleBlenny.addEventListener('click', () => {
+      loadSamplePair('blenny');
+    });
+  }
   
   // 11. Modal Help Overlay actions
   elements.btnShowHelp.addEventListener('click', () => {
@@ -1879,15 +2090,12 @@ function initEvents() {
     elements.btnSliderV.addEventListener('click', () => setSliderOrientation('vertical'));
   }
   
-  // False-color thermal heatmap toggle
+  // Color Gradient Thermal Map toggle
   if (elements.diffToggleHeatmap) {
     elements.diffToggleHeatmap.addEventListener('change', (e) => {
       state.diffHeatmapActive = e.target.checked;
-      if (state.diffHeatmapActive) {
-        elements.viewport.classList.add('diff-heatmap-active');
-      } else {
-        elements.viewport.classList.remove('diff-heatmap-active');
-      }
+      const tc = document.getElementById('thermal-canvas');
+      if (tc) tc.classList.toggle('hidden', !state.diffHeatmapActive);
       renderQCOverlays();
     });
   }
@@ -1906,54 +2114,27 @@ function initEvents() {
     elements.valExposure.textContent = val.toFixed(2) + 'x';
     applyFilters();
     renderHistogram();
-    renderQCOverlays();
+    scheduleQcRender();
   });
-  
+
   elements.adjGamma.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     state.adjustments.gamma = val;
     elements.valGamma.textContent = val.toFixed(2);
     applyFilters();
     renderHistogram();
-    renderQCOverlays();
+    scheduleQcRender();
   });
-  
+
   elements.adjDiffScale.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     state.adjustments.diffScale = val;
     elements.valDiffScale.textContent = val + 'x';
     applyFilters();
     renderHistogram();
-    renderQCOverlays();
+    scheduleQcRender();
   });
-  
-  elements.adjWeightR.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    state.adjustments.weightR = val;
-    elements.valWeightR.textContent = val.toFixed(1);
-    applyFilters();
-    renderHistogram();
-    renderQCOverlays();
-  });
-  
-  elements.adjWeightG.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    state.adjustments.weightG = val;
-    elements.valWeightG.textContent = val.toFixed(1);
-    applyFilters();
-    renderHistogram();
-    renderQCOverlays();
-  });
-  
-  elements.adjWeightB.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    state.adjustments.weightB = val;
-    elements.valWeightB.textContent = val.toFixed(1);
-    applyFilters();
-    renderHistogram();
-    renderQCOverlays();
-  });
-  
+
   elements.btnResetAdjustments.addEventListener('click', resetAdjustments);
   
   // 17. Channel select trigger buttons for Real-Time Scope
@@ -2006,11 +2187,15 @@ function initEvents() {
       state.qcActiveTab = tabName;
       
       // Toggle panes
-      const paneIds = ['deltae', 'tac', 'dot', 'moire'];
+      const paneIds = ['deltae', 'tac', 'dot', 'moire', 'artifacts'];
       paneIds.forEach(p => {
         const el = document.getElementById(`qc-tab-${p}`);
         if (el) el.classList.toggle('hidden', p !== tabName);
       });
+
+      // Full QC state reset on every tab switch
+      clearQcOverlayState();
+      scheduleQcRender();
     });
   });
   
@@ -2022,10 +2207,10 @@ function initEvents() {
       const val = parseInt(e.target.value);
       state.qcTacThreshold = val;
       valTacSlider.textContent = `${val}%`;
-      renderQCOverlays();
+      scheduleQcRender();
     });
   }
-  
+
   // 4. TAC Overlay checkbox
   const tacToggle = document.getElementById('qc-toggle-tac');
   if (tacToggle) {
@@ -2034,7 +2219,7 @@ function initEvents() {
       renderQCOverlays();
     });
   }
-  
+
   // 5. TAC Target selection
   document.querySelectorAll('#qc-tab-tac .btn-qc-radio').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2044,7 +2229,7 @@ function initEvents() {
       renderQCOverlays();
     });
   });
-  
+
   // 6. Scum Dot slider
   const scumSlider = document.getElementById('qc-scum-threshold');
   const valScumSlider = document.getElementById('qc-val-scum-threshold');
@@ -2053,10 +2238,10 @@ function initEvents() {
       const val = parseInt(e.target.value);
       state.qcScumThreshold = val;
       valScumSlider.textContent = `${val}%`;
-      renderQCOverlays();
+      scheduleQcRender();
     });
   }
-  
+
   // 7. Scum Dot Toggle
   const scumToggle = document.getElementById('qc-toggle-scum');
   if (scumToggle) {
@@ -2098,61 +2283,27 @@ function initEvents() {
   const btnClearRois = document.getElementById('btn-clear-rois');
   if (btnClearRois) {
     btnClearRois.addEventListener('click', () => {
-      if (state.qcRegions.length === 0) {
-        showToast('No active ROI regions to clear.');
-        return;
-      }
-      state.qcRegions = [];
-      renderQcRegionList();
+      clearQcOverlayState();
       renderQCOverlays();
-      showToast('Cleared all ROI regions.');
+      showToast('Cleared ROI regions and overlays.');
     });
   }
 
   const btnClearMoire = document.getElementById('btn-clear-moire-roi');
   if (btnClearMoire) {
     btnClearMoire.addEventListener('click', () => {
-      if (!state.qcMoireRegion) {
-        showToast('No active Moiré FFT region to clear.');
-        return;
-      }
-      state.qcMoireRegion = null;
-      state.qcMoireActive = false;
-      const outPanel = document.getElementById('qc-moire-analyzer-output');
-      if (outPanel) outPanel.classList.add('hidden');
+      clearQcOverlayState();
       renderQCOverlays();
-      showToast('Cleared Moiré FFT region.');
+      showToast('Cleared Moiré region and overlays.');
     });
   }
 
   const btnClearDotGain = document.getElementById('btn-clear-dotgain-sampler');
   if (btnClearDotGain) {
     btnClearDotGain.addEventListener('click', () => {
-      if (!state.qcSamplerPin && !state.qcDotGainSamplerActive) {
-        showToast('No active sampler pin or picker to clear.');
-        return;
-      }
-      
-      // 1. Clear Pin
-      state.qcSamplerPin = null;
-      
-      // 2. Clear Picker Mode
-      state.qcDotGainSamplerActive = false;
-      const btnDot = document.getElementById('btn-sample-dotgain');
-      if (btnDot) btnDot.classList.remove('active');
-      
-      if (elements.viewport) {
-        elements.viewport.classList.remove('eyedropper-active');
-      }
-      
-      // 3. Clear Readout
-      const readout = document.getElementById('qc-dotgain-readout');
-      if (readout) {
-        readout.innerHTML = `<p class="qc-empty-text">Select sampler and click on a tonal patch to measure TVI.</p>`;
-      }
-      
+      clearQcOverlayState();
       renderQCOverlays();
-      showToast('Cleared sampler pin and deactivated picker.');
+      showToast('Cleared sampler pin and overlays.');
     });
   }
 
@@ -2211,6 +2362,17 @@ function initEvents() {
         processDotGainSample(coord.x, coord.y);
       }
     }
+  });
+
+  // 12. Artifacts tab: Center / Banding / Halo check buttons
+  document.querySelectorAll('.btn-center-check').forEach(btn => {
+    btn.addEventListener('click', () => runCenterCheck(btn.dataset.slot));
+  });
+  document.querySelectorAll('.btn-banding-check').forEach(btn => {
+    btn.addEventListener('click', () => runBandingCheck(btn.dataset.slot));
+  });
+  document.querySelectorAll('.btn-halo-check').forEach(btn => {
+    btn.addEventListener('click', () => runHaloCheck(btn.dataset.slot));
   });
 }
 
@@ -2339,7 +2501,57 @@ function mapViewportToImage(vx, vy) {
 
 // --- 3. OVERLAYS RENDERER ---
 
+// Resets all per-tab QC overlay state and syncs UI controls.
+// Called on tab switch and by individual "Clear" buttons.
+function clearQcOverlayState() {
+  // State
+  state.qcRegions = [];
+  state.qcSamplerPin = null;
+  state.qcMoireRegion = null;
+  state.qcMoireActive = false;
+  state.qcTacActive = false;
+  state.qcScumActive = false;
+
+  // Dot-gain sampler
+  if (state.qcDotGainSamplerActive) {
+    state.qcDotGainSamplerActive = false;
+    const btnDot = document.getElementById('btn-sample-dotgain');
+    if (btnDot) btnDot.classList.remove('active');
+    if (elements.viewport) elements.viewport.classList.remove('eyedropper-active');
+  }
+
+  // Uncheck overlay toggles
+  const tacChk = document.getElementById('qc-toggle-tac');
+  if (tacChk) tacChk.checked = false;
+  const scumChk = document.getElementById('qc-toggle-scum');
+  if (scumChk) scumChk.checked = false;
+
+  // Hide output panels
+  const moireOut = document.getElementById('qc-moire-analyzer-output');
+  if (moireOut) moireOut.classList.add('hidden');
+
+  // Reset list UIs
+  renderQcRegionList();
+
+  const dotReadout = document.getElementById('qc-dotgain-readout');
+  if (dotReadout) dotReadout.innerHTML = `<p class="qc-empty-text">Select sampler and click on a tonal patch to measure TVI.</p>`;
+}
+
 function renderQCOverlays() {
+  // Skip all canvas work if nothing needs drawing
+  const needsPixelWork = state.qcTacActive || state.qcScumActive ||
+    (state.mode === 'difference' && state.diffHeatmapActive);
+  const needsDraw = state.qcRegions.length > 0 || state.qcMoireActive || !!state.qcSamplerPin;
+
+  if (!needsPixelWork && !needsDraw) {
+    // Still hide the canvases if images aren't loaded
+    const ca = document.getElementById('canvas-a-overlay');
+    const cb = document.getElementById('canvas-b-overlay');
+    if (ca) ca.classList.add('hidden');
+    if (cb) cb.classList.add('hidden');
+    return;
+  }
+
   const overlayCanvasA = document.getElementById('canvas-a-overlay');
   const overlayCanvasB = document.getElementById('canvas-b-overlay');
   
@@ -2595,76 +2807,86 @@ function renderQCOverlays() {
     drawPin(ctxB, state.imageB);
   }
   
-  // 3.6 FALSE-COLOR THERMAL DIFFERENCE HEATMAP (Difference mode only)
-  if (state.mode === 'difference' && state.diffHeatmapActive && state.imageA.loaded && state.imageB.loaded && state.imageA.ctx && state.imageB.ctx) {
+  // 3.6 COLOR GRADIENT THERMAL MAP (Difference mode only)
+  // Renders to a dedicated canvas that sits ABOVE both panes, avoiding any
+  // mix-blend-mode: difference contamination from pane-b.
+  const thermalCanvas = document.getElementById('thermal-canvas');
+  if (state.mode === 'difference' && state.diffHeatmapActive && thermalCanvas &&
+      state.imageA.loaded && state.imageB.loaded && state.imageA.ctx && state.imageB.ctx) {
     const w = state.imageB.width;
     const h = state.imageB.height;
-    
+
     if (state.imageA.width === w && state.imageA.height === h) {
-      const srcDataA = state.imageA.ctx.getImageData(0, 0, w, h).data;
-      const srcDataB = state.imageB.ctx.getImageData(0, 0, w, h).data;
-      
-      const dstImgData = ctxB.createImageData(w, h);
+      // Size + position the thermal canvas to match imgB exactly
+      thermalCanvas.width = w;
+      thermalCanvas.height = h;
+      thermalCanvas.style.transform = elements.imgB.style.transform;
+
+      const ctxT = thermalCanvas.getContext('2d');
+      let srcDataA, srcDataB;
+      try {
+        srcDataA = state.imageA.ctx.getImageData(0, 0, w, h).data;
+        srcDataB = state.imageB.ctx.getImageData(0, 0, w, h).data;
+      } catch (e) {
+        // Canvas is tainted (file:// security) — cannot read pixels
+        thermalCanvas.classList.add('hidden');
+        showToast('⚠️ Thermal map unavailable — load images via drag & drop or HTTP server', 4000);
+        return;
+      }
+
+      const dstImgData = ctxT.createImageData(w, h);
       const dstData = dstImgData.data;
-      
+
       const exp = state.adjustments.exposure;
       const gam = state.adjustments.gamma;
       const scale = state.adjustments.diffScale;
-      const wR = state.adjustments.weightR;
-      const wG = state.adjustments.weightG;
-      const wB = state.adjustments.weightB;
-      
       const len = w * h * 4;
-      
+
       for (let i = 0; i < len; i += 4) {
         const aA = srcDataA[i + 3];
         const aB = srcDataB[i + 3];
-        if (aA === 0 || aB === 0) continue; // Skip transparent
-        
+        if (aA === 0 || aB === 0) {
+          dstData[i + 3] = 0;
+          continue;
+        }
+
         let rA = srcDataA[i] / 255;
         let gA = srcDataA[i + 1] / 255;
         let bA = srcDataA[i + 2] / 255;
-        
         let rB = srcDataB[i] / 255;
         let gB = srcDataB[i + 1] / 255;
         let bB = srcDataB[i + 2] / 255;
-        
-        // Apply exposure linear scaling
+
         rA *= exp; gA *= exp; bA *= exp;
         rB *= exp; gB *= exp; bB *= exp;
-        
-        // Apply gamma correction
+
         if (gam !== 1.0) {
-          const invGam = 1.0 / gam;
-          rA = Math.pow(Math.max(0, rA), invGam);
-          gA = Math.pow(Math.max(0, gA), invGam);
-          bA = Math.pow(Math.max(0, bA), invGam);
-          
-          rB = Math.pow(Math.max(0, rB), invGam);
-          gB = Math.pow(Math.max(0, gB), invGam);
-          bB = Math.pow(Math.max(0, bB), invGam);
+          const inv = 1.0 / gam;
+          rA = Math.pow(Math.max(0, rA), inv);
+          gA = Math.pow(Math.max(0, gA), inv);
+          bA = Math.pow(Math.max(0, bA), inv);
+          rB = Math.pow(Math.max(0, rB), inv);
+          gB = Math.pow(Math.max(0, gB), inv);
+          bB = Math.pow(Math.max(0, bB), inv);
         }
-        
-        // Compute absolute channel differences multiplied by channel sensitivity weights
-        const dR = Math.abs(rA - rB) * wR;
-        const dG = Math.abs(gA - gB) * wG;
-        const dB = Math.abs(bA - bB) * wB;
-        
-        const rawDiff = (dR + dG + dB) / 3;
+
+        const rawDiff = (Math.abs(rA - rB) + Math.abs(gA - gB) + Math.abs(bA - bB)) / 3;
         const boostedDiff = Math.min(1.0, rawDiff * scale);
-        
-        // Map to false color thermal spectrum (HSL)
-        // Blue (hue 240, zero difference) -> Red (hue 0, maximum difference)
+
+        // Blue (hue 240) = no difference → Red (hue 0) = max difference
         const hue = 240 * (1 - boostedDiff);
         const rgb = hslToRgb(hue / 360, 1.0, 0.5);
-        
-        dstData[i] = rgb[0];
+
+        dstData[i]     = rgb[0];
         dstData[i + 1] = rgb[1];
         dstData[i + 2] = rgb[2];
-        dstData[i + 3] = 255; // solid false color map
+        dstData[i + 3] = 255;
       }
-      ctxB.putImageData(dstImgData, 0, 0);
+      ctxT.putImageData(dstImgData, 0, 0);
+      thermalCanvas.classList.remove('hidden');
     }
+  } else if (thermalCanvas && !state.diffHeatmapActive) {
+    thermalCanvas.classList.add('hidden');
   }
 }
 
@@ -3266,6 +3488,316 @@ function analyzeMoireConfidence(magA, magB) {
   } else {
     return 'LOW';
   }
+}
+
+// --- 8. PERFECT CENTER ANALYSIS ---
+
+function runCenterCheck(slot) {
+  const imgState = slot === 'a' ? state.imageA : state.imageB;
+  if (!imgState.loaded || !imgState.ctx) {
+    showToast('Load an image first to run Center Check.');
+    return;
+  }
+
+  const W = imgState.width, H = imgState.height;
+
+  // Sample corners (5×5 each) to estimate background luma
+  const sampleCorner = (x, y) => {
+    const d = imgState.ctx.getImageData(x, y, 5, 5).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    }
+    return sum / 25;
+  };
+  const bgLuma = (sampleCorner(0, 0) + sampleCorner(W - 5, 0) +
+                  sampleCorner(0, H - 5) + sampleCorner(W - 5, H - 5)) / 4;
+
+  // Work on a downsampled canvas for speed (max 512px wide)
+  const scale = Math.min(1, 512 / Math.max(W, H));
+  const sw = Math.round(W * scale), sh = Math.round(H * scale);
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = sw; offCanvas.height = sh;
+  const offCtx = offCanvas.getContext('2d');
+  offCtx.drawImage(imgState.canvas, 0, 0, sw, sh);
+  const pix = offCtx.getImageData(0, 0, sw, sh).data;
+
+  // Find foreground centroid: pixels whose luma differs from bg by > 8
+  const THRESH = 8;
+  let sumX = 0, sumY = 0, count = 0;
+  let minX = sw, maxX = 0, minY = sh, maxY = 0;
+
+  for (let py = 0; py < sh; py++) {
+    for (let px = 0; px < sw; px++) {
+      const i = (py * sw + px) * 4;
+      if (pix[i + 3] < 16) continue; // skip transparent
+      const luma = 0.2126 * pix[i] + 0.7152 * pix[i + 1] + 0.0722 * pix[i + 2];
+      if (Math.abs(luma - bgLuma) > THRESH) {
+        sumX += px; sumY += py; count++;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    }
+  }
+
+  const readout = document.getElementById('qc-center-readout');
+  if (!readout) return;
+
+  if (count < 100) {
+    readout.innerHTML = `<p class="qc-empty-text">Not enough foreground pixels found. Try a different image or lower the background threshold.</p>`;
+    return;
+  }
+
+  // Scale centroid back to image coordinates
+  const centX = (sumX / count) / scale;
+  const centY = (sumY / count) / scale;
+  const offX = centX - W / 2;
+  const offY = centY - H / 2;
+  const offXpct = (offX / W) * 100;
+  const offYpct = (offY / H) * 100;
+  const totalOffPct = Math.sqrt(offXpct * offXpct + offYpct * offYpct);
+
+  let badge, badgeClass;
+  if (totalOffPct < 1.0) { badge = 'PASS'; badgeClass = 'badge-pass'; }
+  else if (totalOffPct < 3.0) { badge = 'WARN'; badgeClass = 'badge-warn'; }
+  else { badge = 'FAIL'; badgeClass = 'badge-fail'; }
+
+  const sign = (v) => v >= 0 ? '+' : '';
+
+  readout.innerHTML = `
+    <div class="qc-center-result">
+      <div class="qc-roi-header" style="margin-bottom:8px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text-light);">Image ${slot.toUpperCase()} Centroid</span>
+        <span class="${badgeClass}">${badge}</span>
+      </div>
+      <table class="qc-dotgain-table">
+        <tbody>
+          <tr>
+            <td style="color:var(--text-muted)">Centroid X</td>
+            <td style="text-align:right;font-family:monospace;">${Math.round(centX)} px</td>
+            <td style="text-align:right;font-family:monospace;color:${Math.abs(offXpct)>=1?'#ff3366':'#00ffcc'}">${sign(offX)}${Math.round(offX)} px (${sign(offXpct)}${offXpct.toFixed(1)}%)</td>
+          </tr>
+          <tr>
+            <td style="color:var(--text-muted)">Centroid Y</td>
+            <td style="text-align:right;font-family:monospace;">${Math.round(centY)} px</td>
+            <td style="text-align:right;font-family:monospace;color:${Math.abs(offYpct)>=1?'#ff3366':'#00ffcc'}">${sign(offY)}${Math.round(offY)} px (${sign(offYpct)}${offYpct.toFixed(1)}%)</td>
+          </tr>
+          <tr>
+            <td style="color:var(--text-muted)">Radial Offset</td>
+            <td style="text-align:right;font-family:monospace;"></td>
+            <td style="text-align:right;font-family:monospace;font-weight:700;color:${totalOffPct>=3?'#ff3366':totalOffPct>=1?'#ffaa00':'#00ffcc'}">${totalOffPct.toFixed(2)}%</td>
+          </tr>
+          <tr>
+            <td style="color:var(--text-muted)">Canvas Center</td>
+            <td style="text-align:right;font-family:monospace;">${Math.round(W/2)} × ${Math.round(H/2)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:8px;">PASS &lt;1% · WARN 1–3% · FAIL &gt;3%</div>
+    </div>`;
+}
+
+// --- 9. BANDING DETECTOR ---
+
+function runBandingCheck(slot) {
+  const imgState = slot === 'a' ? state.imageA : state.imageB;
+  if (!imgState.loaded || !imgState.canvas) {
+    showToast('Load an image first to run Banding Check.');
+    return;
+  }
+
+  // Downsample to ≤256 for speed
+  const scale = Math.min(1, 256 / Math.max(imgState.width, imgState.height));
+  const sw = Math.round(imgState.width * scale);
+  const sh = Math.round(imgState.height * scale);
+  const off = document.createElement('canvas');
+  off.width = sw; off.height = sh;
+  const offCtx = off.getContext('2d');
+  offCtx.drawImage(imgState.canvas, 0, 0, sw, sh);
+  const pix = offCtx.getImageData(0, 0, sw, sh).data;
+
+  // Build luma array
+  const luma = new Float32Array(sw * sh);
+  for (let i = 0; i < sw * sh; i++) {
+    const p = i * 4;
+    luma[i] = (0.2126 * pix[p] + 0.7152 * pix[p + 1] + 0.0722 * pix[p + 2]) / 255;
+  }
+
+  // Scan rows: count step-then-flat patterns (banding signature)
+  // A band is: N pixels with near-zero gradient, then a gradient spike, then N more flat pixels
+  let bandingEvents = 0;
+  let totalChecked = 0;
+  const FLAT_THRESH = 0.004; // ~1 unit on 8-bit
+  const STEP_THRESH = 0.01;  // meaningful luminance step
+
+  for (let y = 0; y < sh; y++) {
+    for (let x = 1; x < sw - 2; x++) {
+      const idx = y * sw + x;
+      const d0 = Math.abs(luma[idx] - luma[idx - 1]);     // prev diff
+      const d1 = Math.abs(luma[idx + 1] - luma[idx]);     // current diff
+      const d2 = Math.abs(luma[idx + 2] - luma[idx + 1]); // next diff
+      totalChecked++;
+
+      // Banding signature: flat → step → flat
+      if (d0 < FLAT_THRESH && d1 > STEP_THRESH && d2 < FLAT_THRESH) {
+        bandingEvents++;
+      }
+    }
+  }
+  // Also scan columns
+  for (let x = 0; x < sw; x++) {
+    for (let y = 1; y < sh - 2; y++) {
+      const idx = y * sw + x;
+      const d0 = Math.abs(luma[idx] - luma[(y - 1) * sw + x]);
+      const d1 = Math.abs(luma[(y + 1) * sw + x] - luma[idx]);
+      const d2 = Math.abs(luma[(y + 2) * sw + x] - luma[(y + 1) * sw + x]);
+      totalChecked++;
+      if (d0 < FLAT_THRESH && d1 > STEP_THRESH && d2 < FLAT_THRESH) {
+        bandingEvents++;
+      }
+    }
+  }
+
+  const score = totalChecked > 0 ? (bandingEvents / totalChecked) * 100 : 0;
+
+  let badge, badgeClass;
+  if (score < 0.5) { badge = 'PASS'; badgeClass = 'badge-pass'; }
+  else if (score < 1.5) { badge = 'WARN'; badgeClass = 'badge-warn'; }
+  else { badge = 'FAIL'; badgeClass = 'badge-fail'; }
+
+  const readout = document.getElementById('qc-banding-readout');
+  if (!readout) return;
+
+  readout.innerHTML = `
+    <div class="qc-roi-header" style="margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text-light);">Image ${slot.toUpperCase()} Banding</span>
+      <span class="${badgeClass}">${badge}</span>
+    </div>
+    <div class="qc-stats-readout">
+      <p>Step-pattern events: <span>${bandingEvents.toLocaleString()}</span></p>
+      <p>Banding index: <span style="color:${score>=1.5?'#ff3366':score>=0.5?'#ffaa00':'#00ffcc'};font-weight:700;">${score.toFixed(3)}%</span></p>
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">PASS &lt;0.5% · WARN 0.5–1.5% · FAIL &gt;1.5%</div>`;
+}
+
+// --- 10. HALO / FRINGE DETECTOR ---
+
+function runHaloCheck(slot) {
+  const imgState = slot === 'a' ? state.imageA : state.imageB;
+  if (!imgState.loaded || !imgState.canvas) {
+    showToast('Load an image first to run Halo Check.');
+    return;
+  }
+
+  const scale = Math.min(1, 256 / Math.max(imgState.width, imgState.height));
+  const sw = Math.round(imgState.width * scale);
+  const sh = Math.round(imgState.height * scale);
+  const off = document.createElement('canvas');
+  off.width = sw; off.height = sh;
+  const offCtx = off.getContext('2d');
+  offCtx.drawImage(imgState.canvas, 0, 0, sw, sh);
+  const pix = offCtx.getImageData(0, 0, sw, sh).data;
+
+  const luma = new Float32Array(sw * sh);
+  for (let i = 0; i < sw * sh; i++) {
+    const p = i * 4;
+    luma[i] = (0.2126 * pix[p] + 0.7152 * pix[p + 1] + 0.0722 * pix[p + 2]) / 255;
+  }
+
+  // Edge detection: mark pixels with gradient magnitude > threshold
+  const EDGE_THRESH = 0.12;
+  const HALO_CONTRAST_THRESH = 0.06; // brightness anomaly near edge
+  const edgeMap = new Uint8Array(sw * sh);
+
+  for (let y = 1; y < sh - 1; y++) {
+    for (let x = 1; x < sw - 1; x++) {
+      const idx = y * sw + x;
+      const dx = luma[idx + 1] - luma[idx - 1];
+      const dy = luma[idx + sw] - luma[idx - sw];
+      if (Math.sqrt(dx * dx + dy * dy) > EDGE_THRESH) edgeMap[idx] = 1;
+    }
+  }
+
+  // Dilate edge map by 1px to get inner fringe zone
+  const innerZone = new Uint8Array(sw * sh);
+  for (let y = 1; y < sh - 1; y++) {
+    for (let x = 1; x < sw - 1; x++) {
+      if (edgeMap[y * sw + x]) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx2 = -1; dx2 <= 1; dx2++) {
+            innerZone[(y + dy) * sw + (x + dx2)] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  // Dilate again by 3px to get outer reference zone
+  const outerZone = new Uint8Array(sw * sh);
+  for (let y = 3; y < sh - 3; y++) {
+    for (let x = 3; x < sw - 3; x++) {
+      if (edgeMap[y * sw + x]) {
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx2 = -3; dx2 <= 3; dx2++) {
+            outerZone[(y + dy) * sw + (x + dx2)] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  // Halo pixels: in inner fringe zone AND significantly brighter than their
+  // 5×5 neighborhood average (overshoot on the bright side of an edge)
+  let haloPixels = 0;
+  let innerCount = 0;
+
+  for (let y = 2; y < sh - 2; y++) {
+    for (let x = 2; x < sw - 2; x++) {
+      const idx = y * sw + x;
+      if (!innerZone[idx] || edgeMap[idx]) continue;
+      innerCount++;
+
+      // 5×5 neighbourhood average (outer reference)
+      let nbSum = 0, nbCount = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx2 = -2; dx2 <= 2; dx2++) {
+          const ni = (y + dy) * sw + (x + dx2);
+          if (!edgeMap[ni]) { nbSum += luma[ni]; nbCount++; }
+        }
+      }
+      if (nbCount === 0) continue;
+      const nbAvg = nbSum / nbCount;
+
+      // Overshoot: pixel is significantly brighter OR darker than its neighborhood
+      if (Math.abs(luma[idx] - nbAvg) > HALO_CONTRAST_THRESH) {
+        haloPixels++;
+      }
+    }
+  }
+
+  const score = innerCount > 0 ? (haloPixels / innerCount) * 100 : 0;
+
+  let badge, badgeClass;
+  if (score < 5) { badge = 'PASS'; badgeClass = 'badge-pass'; }
+  else if (score < 15) { badge = 'WARN'; badgeClass = 'badge-warn'; }
+  else { badge = 'FAIL'; badgeClass = 'badge-fail'; }
+
+  const readout = document.getElementById('qc-halo-readout');
+  if (!readout) return;
+
+  readout.innerHTML = `
+    <div class="qc-roi-header" style="margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text-light);">Image ${slot.toUpperCase()} Halo/Fringe</span>
+      <span class="${badgeClass}">${badge}</span>
+    </div>
+    <div class="qc-stats-readout">
+      <p>Edge fringe pixels: <span>${innerCount.toLocaleString()}</span></p>
+      <p>Halo overshoot ratio: <span style="color:${score>=15?'#ff3366':score>=5?'#ffaa00':'#00ffcc'};font-weight:700;">${score.toFixed(1)}%</span></p>
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">PASS &lt;5% · WARN 5–15% · FAIL &gt;15%</div>`;
 }
 
 // Standard highly-optimized HSL to RGB conversion helper
